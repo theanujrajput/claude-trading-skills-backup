@@ -207,6 +207,33 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             },
         }
 
+    # Check if this invocation is for the Monthly Performance Review
+    if event.get("action") == "monthly_performance_review":
+        print("Received Monthly Performance Review trigger...")
+        sync_from_s3(s3_client, bucket_name, s3_key, LOCAL_TEMP_STATE, default_capital)
+
+        from scripts.monthly_performance_review import run_monthly_performance_review
+
+        send_telegram = event.get("send_telegram", False)
+        target_year = event.get("year")
+        target_month = event.get("month")
+        monthly_result = run_monthly_performance_review(
+            state_file=LOCAL_TEMP_STATE,
+            year=target_year,
+            month=target_month,
+            output_dir=Path("/tmp/reports"),
+            send_telegram=send_telegram,
+        )
+        return {
+            "statusCode": 200,
+            "body": {
+                "status": "success",
+                "action": "monthly_performance_review",
+                "telegram_delivered": send_telegram,
+                "review": monthly_result.get("review", {}),
+            },
+        }
+
     # 1. Download state from S3
     sync_from_s3(s3_client, bucket_name, s3_key, LOCAL_TEMP_STATE, default_capital)
 

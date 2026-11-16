@@ -198,6 +198,15 @@ def close_position(
         "initial_target": pos.get("target"),
     }
 
+    # Trade Memory Loop: evaluate immediate postmortem
+    try:
+        from scripts.trade_memory_loop import evaluate_trade_postmortem
+
+        closed_trade["postmortem"] = evaluate_trade_postmortem(closed_trade)
+    except Exception as e:
+        print(f"Warning: Failed to generate trade postmortem: {e}", file=sys.stderr)
+        closed_trade["postmortem"] = None
+
     state["closed_trades"].append(closed_trade)
 
     total_pos_value = sum(p["market_value"] for p in state["active_positions"].values())
@@ -224,6 +233,7 @@ def close_position(
                 pnl_pct=pnl_pct,
                 reason=reason,
                 cash_balance=state["cash"],
+                postmortem=closed_trade.get("postmortem"),
             )
     except Exception as e:
         print(f"Warning: Failed to dispatch Telegram sell notification: {e}", file=sys.stderr)

@@ -70,6 +70,7 @@ class TestAWSLambdaHandler(unittest.TestCase):
         self.assertIn("MarketScheduleRule", data["Resources"])
         self.assertIn("WeeklySectorScheduleRule", data["Resources"])
         self.assertIn("DailyEODScheduleRule", data["Resources"])
+        self.assertIn("MonthlyPerformanceScheduleRule", data["Resources"])
 
     @patch("scripts.aws_lambda_handler.boto3")
     @patch("scripts.weekly_sector_report.run_weekly_sector_routine")
@@ -142,6 +143,36 @@ class TestAWSLambdaHandler(unittest.TestCase):
             self.assertFalse(resp["body"]["telegram_delivered"])
             mock_review.assert_called_once_with(
                 state_file=Path("/tmp/paper_trading_state.json"),
+                output_dir=Path("/tmp/reports"),
+                send_telegram=False,
+            )
+
+    @patch("scripts.aws_lambda_handler.boto3")
+    @patch("scripts.monthly_performance_review.run_monthly_performance_review")
+    @patch("scripts.aws_lambda_handler.sync_from_s3")
+    def test_lambda_handler_monthly_performance_review_action(
+        self, mock_from_s3, mock_monthly, mock_boto3
+    ):
+        mock_monthly.return_value = {
+            "status": "success",
+            "review": {
+                "month_str": "2026-11",
+                "net_pnl": 15000.0,
+                "profit_factor": 3.0,
+            },
+        }
+        with patch.dict("os.environ", {"S3_BUCKET_NAME": "test-trading-bucket"}):
+            resp = lambda_handler(
+                {"action": "monthly_performance_review", "year": 2026, "month": 11},
+                None,
+            )
+            self.assertEqual(resp["statusCode"], 200)
+            self.assertEqual(resp["body"]["action"], "monthly_performance_review")
+            self.assertFalse(resp["body"]["telegram_delivered"])
+            mock_monthly.assert_called_once_with(
+                state_file=Path("/tmp/paper_trading_state.json"),
+                year=2026,
+                month=11,
                 output_dir=Path("/tmp/reports"),
                 send_telegram=False,
             )

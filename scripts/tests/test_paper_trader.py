@@ -5,6 +5,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from scripts.paper_trader import (
     close_position,
@@ -17,10 +18,14 @@ from scripts.paper_trader import (
 
 class TestPaperTrader(unittest.TestCase):
     def setUp(self):
+        self.telegram_patcher = patch("scripts.telegram_notifier.TelegramNotifier")
+        self.mock_notifier = self.telegram_patcher.start()
+        self.mock_notifier.return_value.is_configured = False
         self.temp_dir = tempfile.TemporaryDirectory()
         self.state_file = Path(self.temp_dir.name) / "test_paper_state.json"
 
     def tearDown(self):
+        self.telegram_patcher.stop()
         self.temp_dir.cleanup()
 
     def test_init_account(self):
@@ -72,6 +77,9 @@ class TestPaperTrader(unittest.TestCase):
         self.assertEqual(trade["pnl"], (5100.0 - 4800.0) * 10)
         self.assertEqual(trade["exit_reason"], "TARGET_REACHED")
         self.assertEqual(state["cash"], 100000.0 + 3000.0)
+        self.assertIn("postmortem", trade)
+        self.assertIsNotNone(trade["postmortem"])
+        self.assertEqual(trade["postmortem"]["symbol"], "HAL")
 
     def test_format_status_markdown(self):
         init_account(500000.0, self.state_file)

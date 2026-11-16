@@ -201,6 +201,7 @@ class TelegramNotifier:
         pnl_pct: float,
         reason: str,
         cash_balance: float | None = None,
+        postmortem: dict[str, Any] | None = None,
     ) -> bool:
         """Send notification when a SELL / EXIT position is closed."""
         if not self.is_configured:
@@ -224,8 +225,19 @@ class TelegramNotifier:
             f"<b>Exit Reason:</b> <code>{reason}</code>",
         ]
 
+        if postmortem:
+            r_mult = postmortem.get("r_multiple")
+            if r_mult is not None:
+                lines.append(f"<b>R-Multiple:</b> {r_mult:+.2f}R")
+            category = postmortem.get("root_cause_category")
+            if category:
+                lines.append(f"<b>Root Cause:</b> <code>{category}</code>")
+            lesson = postmortem.get("lesson")
+            if lesson:
+                lines.append(f"\n<i>Takeaway: {lesson}</i>")
+
         if cash_balance is not None:
-            lines.append(f"<b>Updated Cash:</b> ₹{cash_balance:,.2f}")
+            lines.append(f"\n<b>Updated Cash:</b> ₹{cash_balance:,.2f}")
 
         return self.send_message("\n".join(lines))
 

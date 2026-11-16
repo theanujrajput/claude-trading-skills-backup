@@ -181,6 +181,30 @@ Resources:
       SourceArn:
         Fn::GetAtt: [DailyEODScheduleRule, Arn]
 
+  # 10. Amazon EventBridge Rule: 1st of every month at 4:30 PM IST (11:00 UTC)
+  MonthlyPerformanceScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: 'Triggers Monthly Performance Review & Rule Calibrations on the 1st of every month at 4:30 PM IST (11:00 UTC)'
+      ScheduleExpression: 'cron(0 11 1 * ? *)'
+      State: ENABLED
+      Targets:
+        - Arn:
+            Fn::GetAtt: [DailySwingTradingFunction, Arn]
+          Id: 'MonthlyPerformanceTarget'
+          Input: '{"action": "monthly_performance_review", "send_telegram": true}'
+
+  # 11. Permission for MonthlyPerformanceScheduleRule to invoke Lambda
+  PermissionForMonthlyPerformanceRule:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: DailySwingTradingFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt: [MonthlyPerformanceScheduleRule, Arn]
+
 Outputs:
   TradingStateBucketName:
     Description: 'S3 Bucket storing paper trading state JSON'
