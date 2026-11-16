@@ -70,6 +70,7 @@ class TestAWSLambdaHandler(unittest.TestCase):
         self.assertIn("MarketScheduleRule", data["Resources"])
         self.assertIn("WeeklySectorScheduleRule", data["Resources"])
         self.assertIn("DailyEODScheduleRule", data["Resources"])
+        self.assertIn("CorePortfolioWeeklyScheduleRule", data["Resources"])
         self.assertIn("MonthlyPerformanceScheduleRule", data["Resources"])
 
     @patch("scripts.aws_lambda_handler.boto3")

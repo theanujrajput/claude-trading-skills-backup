@@ -181,7 +181,31 @@ Resources:
       SourceArn:
         Fn::GetAtt: [DailyEODScheduleRule, Arn]
 
-  # 10. Amazon EventBridge Rule: 1st of every month at 4:30 PM IST (11:00 UTC)
+  # 10. Amazon EventBridge Rule: Every Sunday at 4:00 PM IST (10:30 UTC)
+  CorePortfolioWeeklyScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: 'Triggers Weekly Core Portfolio Concentration & Allocation Audit every Sunday at 4:00 PM IST (10:30 UTC)'
+      ScheduleExpression: 'cron(30 10 ? * SUN *)'
+      State: ENABLED
+      Targets:
+        - Arn:
+            Fn::GetAtt: [DailySwingTradingFunction, Arn]
+          Id: 'CorePortfolioWeeklyTarget'
+          Input: '{"action": "core_portfolio_review", "send_telegram": true}'
+
+  # 11. Permission for CorePortfolioWeeklyScheduleRule to invoke Lambda
+  PermissionForCorePortfolioWeeklyRule:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: DailySwingTradingFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt: [CorePortfolioWeeklyScheduleRule, Arn]
+
+  # 12. Amazon EventBridge Rule: 1st of every month at 4:30 PM IST (11:00 UTC)
   MonthlyPerformanceScheduleRule:
     Type: AWS::Events::Rule
     Properties:
@@ -194,7 +218,7 @@ Resources:
           Id: 'MonthlyPerformanceTarget'
           Input: '{"action": "monthly_performance_review", "send_telegram": true}'
 
-  # 11. Permission for MonthlyPerformanceScheduleRule to invoke Lambda
+  # 13. Permission for MonthlyPerformanceScheduleRule to invoke Lambda
   PermissionForMonthlyPerformanceRule:
     Type: AWS::Lambda::Permission
     Properties:
