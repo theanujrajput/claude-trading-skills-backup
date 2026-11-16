@@ -127,6 +127,7 @@ def enter_position(
         "unrealized_pnl": 0.0,
         "pnl_pct": 0.0,
         "trailing_breakeven_triggered": False,
+        "profit_lock_triggered": False,
         "partial_target_hit": False,
         "is_runner": False,
         "notes": notes,
@@ -330,7 +331,19 @@ def update_market_prices(
                             f"New Stop Loss = ₹{entry_p:,.2f} (Gain reached {pos['pnl_pct']:+.2f}%)"
                         )
 
-                # 2. Hybrid Profit Booking at +8% Target: Book 50%, trail remaining 50%
+                # 2. Stage 2: Profit Lock Ladder at +6% gain -> Lock in +3% profit
+                if pos.get("entry_price") and pos["pnl_pct"] >= 6.0:
+                    lock_stop = round(pos["entry_price"] * 1.03, 2)
+                    current_sl = pos.get("stop_loss", 0.0)
+                    if current_sl < lock_stop:
+                        pos["stop_loss"] = lock_stop
+                        pos["profit_lock_triggered"] = True
+                        events.append(
+                            f"🔒 Profit Lock Ladder Activated for {sym}: "
+                            f"Stop Loss raised to ₹{lock_stop:,.2f} (+3.0% profit locked on {pos['pnl_pct']:+.2f}% gain)"
+                        )
+
+                # 3. Hybrid Profit Booking at +8% Target: Book 50%, trail remaining 50%
                 if (
                     auto_trigger_stops
                     and pos.get("target")
@@ -373,7 +386,7 @@ def update_market_prices(
                         events.append(f"🟢 {close_msg}")
                         continue
 
-                # 3. Progressive Trailing Stop for Active Runner: ratchet stop upward with new highs
+                # 4. Progressive Trailing Stop for Active Runner: ratchet stop upward with new highs
                 if pos.get("is_runner"):
                     candidate_stop = round(pos["highest_price"] * 0.96, 2)
                     current_sl = pos.get("stop_loss", 0.0)
@@ -384,10 +397,12 @@ def update_market_prices(
                             f"₹{current_sl:,.2f} → ₹{candidate_stop:,.2f} (Peak: ₹{pos['highest_price']:,.2f})"
                         )
 
-                # 4. Check Stop Loss / Trailing Stop Trigger
+                # 5. Check Stop Loss / Trailing Stop Trigger
                 if auto_trigger_stops and pos.get("stop_loss") and latest_close <= pos["stop_loss"]:
                     if pos.get("is_runner"):
                         reason = "TRAILING_STOP_TRIGGERED"
+                    elif pos.get("profit_lock_triggered"):
+                        reason = "PROFIT_LOCK_STOP_TRIGGERED"
                     elif pos.get("trailing_breakeven_triggered"):
                         reason = "BREAKEVEN_STOP_TRIGGERED"
                     else:
@@ -458,6 +473,8 @@ def format_status_markdown(state: dict[str, Any]) -> str:
             if p.get("is_runner"):
                 badge = " 🏃 (Runner)"
                 tgt_str = "Trailing"
+            elif p.get("profit_lock_triggered"):
+                badge = " 🔒 (+3% Lock)"
             elif p.get("trailing_breakeven_triggered"):
                 badge = " 🛡️ (BE)"
 

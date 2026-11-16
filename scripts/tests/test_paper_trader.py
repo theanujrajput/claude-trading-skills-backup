@@ -180,6 +180,52 @@ class TestPaperTrader(unittest.TestCase):
             self.assertAlmostEqual(runner_exit["exit_price"], 1150.0)
             self.assertGreater(runner_exit["pnl"], 0)
 
+    def test_profit_lock_ladder_at_6_pct(self):
+        from unittest.mock import MagicMock, patch
+
+        import pandas as pd
+
+        from scripts.paper_trader import update_market_prices
+
+        init_account(100000.0, self.state_file)
+        # 10 shares @ 1000, initial stop at 960 (-4%), target at 1080 (+8%)
+        enter_position("LOCK_TEST", 10, 1000.0, 960.0, 1080.0, state_file=self.state_file)
+
+        mock_df = MagicMock()
+
+        # Step 1: Stock hits 1045 (+4.5%) -> Stop moves to break-even (1000)
+        mock_series1 = pd.Series([1045.0], name="LOCK_TEST.NS")
+        mock_df.__getitem__.return_value = {"LOCK_TEST.NS": mock_series1}
+        with patch("yfinance.download", return_value=mock_df):
+            events, state = update_market_prices(state_file=self.state_file)
+            pos = state["active_positions"]["LOCK_TEST"]
+            self.assertEqual(pos["stop_loss"], 1000.0)
+            self.assertTrue(pos["trailing_breakeven_triggered"])
+            self.assertFalse(pos.get("profit_lock_triggered", False))
+
+        # Step 2: Stock hits 1065 (+6.5%) -> Profit Lock activates, stop moves to 1030 (+3%)
+        mock_series2 = pd.Series([1065.0], name="LOCK_TEST.NS")
+        mock_df.__getitem__.return_value = {"LOCK_TEST.NS": mock_series2}
+        with patch("yfinance.download", return_value=mock_df):
+            events, state = update_market_prices(state_file=self.state_file)
+            pos = state["active_positions"]["LOCK_TEST"]
+            self.assertEqual(pos["stop_loss"], 1030.0)
+            self.assertTrue(pos["profit_lock_triggered"])
+
+        # Step 3: Stock reverses sharply to 1025 (below 1030)
+        # Position should exit with PROFIT_LOCK_STOP_TRIGGERED with guaranteed profit
+        mock_series3 = pd.Series([1025.0], name="LOCK_TEST.NS")
+        mock_df.__getitem__.return_value = {"LOCK_TEST.NS": mock_series3}
+        with patch("yfinance.download", return_value=mock_df):
+            events, state = update_market_prices(state_file=self.state_file)
+            self.assertNotIn("LOCK_TEST", state["active_positions"])
+            self.assertEqual(len(state["closed_trades"]), 1)
+            trade = state["closed_trades"][0]
+            self.assertEqual(trade["exit_reason"], "PROFIT_LOCK_STOP_TRIGGERED")
+            self.assertAlmostEqual(trade["exit_price"], 1025.0)
+            self.assertGreater(trade["pnl"], 0)
+            self.assertEqual(trade["postmortem"]["root_cause_category"], "PROFIT_LOCK_PRESERVED")
+
 
 if __name__ == "__main__":
     unittest.main()

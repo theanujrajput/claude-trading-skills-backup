@@ -81,6 +81,12 @@ def evaluate_trade_postmortem(trade: dict[str, Any]) -> dict[str, Any]:
             f"Runner captured extended move ({r_multiple:+.2f}R in {hold_days} days). "
             f"Progressive trailing stop locked in profit after breakout expansion."
         )
+    elif "PROFIT_LOCK" in exit_reason:
+        category = "PROFIT_LOCK_PRESERVED"
+        lesson = (
+            f"Intermediate Profit Lock ladder executed at {r_multiple:+.2f}R ({pnl_pct:+.2f}%). "
+            f"Protected gains when move reversed after reaching +6% boundary."
+        )
     elif exit_reason == "BREAKEVEN_STOP_TRIGGERED" or "BREAKEVEN" in exit_reason:
         category = "PROTECTED_CAPITAL"
         lesson = (

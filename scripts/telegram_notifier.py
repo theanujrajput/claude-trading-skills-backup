@@ -211,6 +211,8 @@ class TelegramNotifier:
             header = "🎯 <b>PARTIAL TARGET REACHED (+8% 50% BOOKED)</b>"
         elif "TRAILING_STOP" in reason:
             header = "📈 <b>RUNNER TRAILING STOP EXIT (EXTENDED PROFIT)</b>"
+        elif "PROFIT_LOCK" in reason:
+            header = "🔒 <b>PROFIT LOCK EXIT (+3% GAIN BANKED)</b>"
         elif reason == "BREAKEVEN_STOP_TRIGGERED":
             header = "🛡️ <b>BREAK-EVEN EXIT (CAPITAL PROTECTED)</b>"
         elif pnl >= 0:
