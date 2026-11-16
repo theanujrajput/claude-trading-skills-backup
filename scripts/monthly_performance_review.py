@@ -13,12 +13,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from fpdf import FPDF
+
 ROOT_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT_DIR))
 DEFAULT_STATE_FILE = ROOT_DIR / "state" / "paper_trading_state.json"
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -232,6 +236,225 @@ def format_monthly_review_markdown(review: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+class MonthlyReportPDF(FPDF):
+    def header(self):
+        self.set_fill_color(26, 54, 93)  # Deep Navy
+        self.rect(0, 0, 210, 10, "F")
+        self.set_font("Helvetica", "B", 7.5)
+        self.set_text_color(255, 255, 255)
+        self.set_xy(10, 2.5)
+        self.cell(0, 5, "CLAUDE TRADING SKILLS - MONTHLY PERFORMANCE REVIEW", align="L")
+        self.ln(10)
+
+    def footer(self):
+        self.set_y(-12)
+        self.set_font("Helvetica", "I", 7.5)
+        self.set_text_color(160, 174, 192)
+        self.cell(
+            0,
+            8,
+            f"Institutional Trade Memory & Performance Calibration | Page {self.page_no()}",
+            align="C",
+        )
+
+
+def build_monthly_performance_pdf(review: dict[str, Any], output_path: Path) -> Path:
+    """Build publication-grade Monthly Performance Review PDF."""
+    pdf = MonthlyReportPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    r = review
+
+    # Title & Metadata
+    pdf.set_font("Helvetica", "B", 17)
+    pdf.set_text_color(26, 54, 93)
+    pdf.cell(
+        0, 8, f"Monthly Performance Review: {r['month_display']}", new_x="LMARGIN", new_y="NEXT"
+    )
+
+    pdf.set_font("Helvetica", "", 9.5)
+    pdf.set_text_color(74, 85, 104)
+    pdf.cell(
+        0,
+        5,
+        f"Period: {r['month_str']} | System Audit, Trade Postmortems & Rule Calibration",
+        new_x="LMARGIN",
+        new_y="NEXT",
+    )
+    pdf.ln(3)
+
+    # 1. Summary Cards (4 columns)
+    col_w = 47.5
+    y_pos = pdf.get_y()
+    pdf.set_fill_color(247, 250, 252)
+    pdf.set_draw_color(226, 232, 240)
+
+    pnl_sign = "+" if r["net_pnl"] >= 0 else ""
+    cards = [
+        ("Net Realized P&L", f"Rs. {r['net_pnl']:+,.1f} ({pnl_sign}{r['net_return_pct']}%)"),
+        ("Win Rate", f"{r['win_rate_pct']}% ({r['winning_trades']}W / {r['losing_trades']}L)"),
+        ("Profit Factor", f"{r['profit_factor']}"),
+        ("Payoff Ratio", f"{r['payoff_ratio']}x ({r['avg_r_multiple']:+.2f}R)"),
+    ]
+    for i, (label, val) in enumerate(cards):
+        x = 10 + (i * col_w)
+        pdf.rect(x, y_pos, col_w - 2, 14, "DF")
+        pdf.set_xy(x + 2, y_pos + 1.5)
+        pdf.set_font("Helvetica", "B", 7.5)
+        pdf.set_text_color(113, 128, 150)
+        pdf.cell(col_w - 4, 3.5, label)
+        pdf.set_xy(x + 2, y_pos + 6.5)
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_text_color(26, 54, 93)
+        pdf.cell(col_w - 4, 5.5, val)
+
+    pdf.set_y(y_pos + 18)
+
+    # 2. Performance Breakdown Sub-Metrics
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(26, 54, 93)
+    pdf.cell(0, 6, "1. Executive Performance Metrics", new_x="LMARGIN", new_y="NEXT")
+
+    sub_metrics = [
+        (
+            "Gross Profit",
+            f"Rs. {r['gross_profit']:,.1f}",
+            "Average Winner",
+            f"+{r['avg_win_pct']:.2f}% (Rs. {r['avg_win_pnl']:,.1f})",
+        ),
+        (
+            "Gross Loss",
+            f"Rs. {r['gross_loss']:,.1f}",
+            "Average Loser",
+            f"{r['avg_loss_pct']:.2f}% (Rs. {r['avg_loss_pnl']:,.1f})",
+        ),
+        (
+            "Total Trades",
+            f"{r['total_trades']} closed",
+            "Average Hold Time",
+            f"{r['avg_hold_days']} days",
+        ),
+    ]
+    pdf.set_font("Helvetica", "", 8.5)
+    for m1, v1, m2, v2 in sub_metrics:
+        pdf.set_text_color(74, 85, 104)
+        pdf.cell(35, 5, f"  - {m1}:", align="L")
+        pdf.set_text_color(26, 54, 93)
+        pdf.cell(50, 5, v1, align="L")
+
+        pdf.set_text_color(74, 85, 104)
+        pdf.cell(40, 5, f"- {m2}:", align="L")
+        pdf.set_text_color(26, 54, 93)
+        pdf.cell(60, 5, v2, align="L")
+        pdf.ln(5)
+
+    pdf.ln(3)
+
+    # 3. Sector Realized P&L Table
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(26, 54, 93)
+    pdf.cell(0, 6, "2. Sector Realized Performance", new_x="LMARGIN", new_y="NEXT")
+
+    sec_headers = [
+        ("Sector", 70),
+        ("Closed Trades", 30),
+        ("Win Rate (%)", 35),
+        ("Realized P&L", 55),
+    ]
+    pdf.set_fill_color(237, 242, 247)
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_text_color(45, 55, 72)
+    for title, width in sec_headers:
+        pdf.cell(width, 5.5, title, border=1, fill=True, align="C")
+    pdf.ln(5.5)
+
+    pdf.set_font("Helvetica", "", 8)
+    for idx, (sec, data) in enumerate(r["sector_performance"].items()):
+        row_bg = (248, 250, 252) if idx % 2 == 1 else (255, 255, 255)
+        pdf.set_fill_color(*row_bg)
+        sec_wr = (data["wins"] / data["trades"] * 100.0) if data["trades"] > 0 else 0.0
+        sec_pnl = data["net_pnl"]
+
+        pdf.set_text_color(26, 54, 93)
+        pdf.cell(70, 5.2, f"  {sec}", border=1, fill=True, align="L")
+        pdf.set_text_color(74, 85, 104)
+        pdf.cell(30, 5.2, str(data["trades"]), border=1, fill=True, align="C")
+        pdf.cell(35, 5.2, f"{sec_wr:.1f}%", border=1, fill=True, align="C")
+
+        if sec_pnl >= 0:
+            pdf.set_text_color(40, 167, 69)
+            pnl_str = f"+Rs. {sec_pnl:,.1f}"
+        else:
+            pdf.set_text_color(220, 53, 69)
+            pnl_str = f"-Rs. {abs(sec_pnl):,.1f}"
+        pdf.cell(55, 5.2, pnl_str, border=1, fill=True, align="R")
+        pdf.ln(5.2)
+
+    pdf.ln(3)
+
+    # 4. Root-Cause Postmortem Breakdown
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(26, 54, 93)
+    pdf.cell(0, 6, "3. Root-Cause Postmortem Classifications", new_x="LMARGIN", new_y="NEXT")
+
+    rc_headers = [("Category", 65), ("Occurrences", 30), ("Percentage", 35), ("System Impact", 60)]
+    pdf.set_fill_color(237, 242, 247)
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_text_color(45, 55, 72)
+    for title, width in rc_headers:
+        pdf.cell(width, 5.5, title, border=1, fill=True, align="C")
+    pdf.ln(5.5)
+
+    pdf.set_font("Helvetica", "", 8)
+    for idx, (cat, count) in enumerate(r["root_cause_counts"].items()):
+        row_bg = (248, 250, 252) if idx % 2 == 1 else (255, 255, 255)
+        pdf.set_fill_color(*row_bg)
+        pct = (count / r["total_trades"] * 100.0) if r["total_trades"] > 0 else 0.0
+
+        pdf.set_text_color(26, 54, 93)
+        pdf.cell(65, 5.2, f"  {cat}", border=1, fill=True, align="L")
+        pdf.set_text_color(74, 85, 104)
+        pdf.cell(30, 5.2, str(count), border=1, fill=True, align="C")
+        pdf.cell(35, 5.2, f"{pct:.1f}%", border=1, fill=True, align="C")
+
+        if cat == "SETUP_EDGE_PLAYED_OUT":
+            impact = "Positive edge extraction (+2R)"
+            pdf.set_text_color(40, 167, 69)
+        elif cat == "PROTECTED_CAPITAL":
+            impact = "Downside prevented via trailing stop"
+            pdf.set_text_color(43, 108, 176)
+        else:
+            impact = "Risk strictly contained (-1R stop)"
+            pdf.set_text_color(214, 158, 46)
+        pdf.cell(60, 5.2, impact, border=1, fill=True, align="L")
+        pdf.ln(5.2)
+
+    pdf.ln(4)
+
+    # 5. Calibrated Operating Rules Box for Next Month
+    pdf.set_fill_color(237, 242, 247)
+    pdf.set_draw_color(49, 130, 206)
+    pdf.set_line_width(0.6)
+
+    box_y = pdf.get_y()
+    pdf.rect(10, box_y, 190, 26, "DF")
+    pdf.set_xy(14, box_y + 2)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(43, 108, 176)
+    pdf.cell(0, 5, "CALIBRATED OPERATING RULES FOR NEXT MONTH", new_x="LMARGIN", new_y="NEXT")
+
+    pdf.set_font("Helvetica", "", 8.5)
+    pdf.set_text_color(45, 55, 72)
+    for rec in r["recommendations"][:3]:
+        pdf.set_x(14)
+        pdf.cell(0, 4.5, f"- {rec[:100]}", new_x="LMARGIN", new_y="NEXT")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    pdf.output(str(output_path))
+    return output_path
+
+
 def run_monthly_performance_review(
     state_file: Path = DEFAULT_STATE_FILE,
     year: int | None = None,
@@ -249,12 +472,17 @@ def run_monthly_performance_review(
     review = evaluate_monthly_performance(state, year=year, month=month)
     md_report = format_monthly_review_markdown(review)
 
-    if output_dir:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        rep_path = output_dir / f"monthly_review_{review['month_str']}.md"
-        with open(rep_path, "w", encoding="utf-8") as f:
-            f.write(md_report)
+    target_dir = output_dir or (ROOT_DIR / "reports")
+    target_dir.mkdir(parents=True, exist_ok=True)
 
+    rep_path = target_dir / f"monthly_review_{review['month_str']}.md"
+    with open(rep_path, "w", encoding="utf-8") as f:
+        f.write(md_report)
+
+    pdf_path = target_dir / f"monthly_performance_review_{review['month_str']}.pdf"
+    build_monthly_performance_pdf(review, pdf_path)
+
+    telegram_delivered = False
     if send_telegram:
         try:
             from scripts.telegram_notifier import TelegramNotifier
@@ -263,22 +491,26 @@ def run_monthly_performance_review(
             if notifier.is_configured:
                 pnl_emoji = "🟢" if review["net_pnl"] >= 0 else "🔴"
                 pnl_sign = "+" if review["net_pnl"] >= 0 else ""
-                lines = [
+                caption_lines = [
                     f"📊 <b>MONTHLY PERFORMANCE REVIEW ({review['month_display'].upper()})</b>",
                     "━━━━━━━━━━━━━━━━━━━━━",
                     f"{pnl_emoji} <b>Net Realized P&L:</b> ₹{review['net_pnl']:+,.2f} ({pnl_sign}{review['net_return_pct']}%)",
                     f"• <b>Win Rate:</b> {review['win_rate_pct']}% ({review['winning_trades']}W / {review['losing_trades']}L)",
                     f"• <b>Profit Factor:</b> {review['profit_factor']}",
-                    f"• <b>Expectancy:</b> {review['avg_r_multiple']:+.2f}R",
-                    f"• <b>Payoff Ratio:</b> {review['payoff_ratio']}x",
+                    f"• <b>Expectancy:</b> {review['avg_r_multiple']:+.2f}R | <b>Payoff:</b> {review['payoff_ratio']}x",
                     f"• <b>Avg Hold Time:</b> {review['avg_hold_days']} days",
                     "",
-                    "<b>Calibrated Operating Rules for Next Month:</b>",
+                    "<b>Calibrated Operating Rules:</b>",
                 ]
                 for rec in review["recommendations"][:2]:
-                    lines.append(f"• <i>{rec}</i>")
-                lines.append("━━━━━━━━━━━━━━━━━━━━━")
-                notifier.send_message("\n".join(lines))
+                    caption_lines.append(f"• <i>{rec}</i>")
+                caption_lines.append(
+                    "\nDetailed institutional monthly report attached in PDF below 👇"
+                )
+
+                telegram_delivered = notifier.send_document(
+                    pdf_path, caption="\n".join(caption_lines)
+                )
         except Exception as e:
             print(f"Warning: Failed to dispatch Telegram monthly review: {e}")
 
@@ -286,6 +518,8 @@ def run_monthly_performance_review(
         "status": "success",
         "review": review,
         "markdown": md_report,
+        "pdf_path": str(pdf_path),
+        "telegram_delivered": telegram_delivered,
     }
 
 

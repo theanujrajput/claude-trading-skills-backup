@@ -14,12 +14,16 @@ Guidelines Enforced:
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from fpdf import FPDF
+
 ROOT_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT_DIR))
 DEFAULT_STATE_FILE = ROOT_DIR / "state" / "paper_trading_state.json"
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -211,12 +215,220 @@ def format_core_portfolio_markdown(review: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+class PortfolioReportPDF(FPDF):
+    def header(self):
+        self.set_fill_color(26, 54, 93)  # Deep Navy
+        self.rect(0, 0, 210, 10, "F")
+        self.set_font("Helvetica", "B", 7.5)
+        self.set_text_color(255, 255, 255)
+        self.set_xy(10, 2.5)
+        self.cell(0, 5, "CLAUDE TRADING SKILLS - CORE PORTFOLIO WEEKLY AUDIT", align="L")
+        self.ln(10)
+
+    def footer(self):
+        self.set_y(-12)
+        self.set_font("Helvetica", "I", 7.5)
+        self.set_text_color(160, 174, 192)
+        self.cell(
+            0,
+            8,
+            f"Automated Risk Governance & Allocation Audit | Page {self.page_no()}",
+            align="C",
+        )
+
+
+def build_core_portfolio_pdf(review: dict[str, Any], output_path: Path) -> Path:
+    """Build publication-grade Core Portfolio Weekly Review PDF."""
+    pdf = PortfolioReportPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    date_str = review.get("date", datetime.today().strftime("%Y-%m-%d"))
+
+    # Title & Metadata
+    pdf.set_font("Helvetica", "B", 17)
+    pdf.set_text_color(26, 54, 93)
+    pdf.cell(0, 8, "Core Portfolio Weekly Review & Risk Audit", new_x="LMARGIN", new_y="NEXT")
+
+    pdf.set_font("Helvetica", "", 9.5)
+    pdf.set_text_color(74, 85, 104)
+    pdf.cell(
+        0,
+        5,
+        f"Audit Date: {date_str} | Capital Allocation, Concentration Caps & Risk Protection",
+        new_x="LMARGIN",
+        new_y="NEXT",
+    )
+    pdf.ln(3)
+
+    # 1. Summary Cards (4 columns)
+    col_w = 47.5
+    y_pos = pdf.get_y()
+    pdf.set_fill_color(247, 250, 252)
+    pdf.set_draw_color(226, 232, 240)
+
+    cards = [
+        ("Portfolio Equity", f"Rs. {review['portfolio_equity']:,.1f}"),
+        ("Cash Reserves", f"Rs. {review['cash']:,.1f} ({review['cash_pct']}%)"),
+        ("Active Positions", f"{review['positions_count']} Holdings"),
+        ("Capital Protected", f"{review['risk_free_ratio_pct']}% Risk-Free"),
+    ]
+    for i, (label, val) in enumerate(cards):
+        x = 10 + (i * col_w)
+        pdf.rect(x, y_pos, col_w - 2, 14, "DF")
+        pdf.set_xy(x + 2, y_pos + 1.5)
+        pdf.set_font("Helvetica", "B", 7.5)
+        pdf.set_text_color(113, 128, 150)
+        pdf.cell(col_w - 4, 3.5, label)
+        pdf.set_xy(x + 2, y_pos + 6.5)
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_text_color(26, 54, 93)
+        pdf.cell(col_w - 4, 5.5, val)
+
+    pdf.set_y(y_pos + 18)
+
+    # 2. Sector Concentration Matrix Table
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(26, 54, 93)
+    pdf.cell(0, 6, "1. Sector Concentration Matrix (Max Cap: 25.0%)", new_x="LMARGIN", new_y="NEXT")
+
+    headers = [
+        ("Sector", 55),
+        ("Market Value", 35),
+        ("Weight (%)", 25),
+        ("Cap Status", 35),
+        ("Holdings", 40),
+    ]
+    pdf.set_fill_color(237, 242, 247)
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_text_color(45, 55, 72)
+    for title, width in headers:
+        pdf.cell(width, 5.5, title, border=1, fill=True, align="C")
+    pdf.ln(5.5)
+
+    pdf.set_font("Helvetica", "", 8)
+    for idx, (sec, data) in enumerate(review["sector_breakdown"].items()):
+        row_bg = (248, 250, 252) if idx % 2 == 1 else (255, 255, 255)
+        pdf.set_fill_color(*row_bg)
+        weight = data["weight_pct"]
+        is_over = weight > 25.0
+
+        pdf.set_text_color(26, 54, 93)
+        pdf.cell(55, 5.2, f"  {sec}", border=1, fill=True, align="L")
+        pdf.cell(35, 5.2, f"Rs. {data['market_value']:,.1f}", border=1, fill=True, align="R")
+
+        if is_over:
+            pdf.set_text_color(220, 53, 69)
+            pdf.cell(25, 5.2, f"{weight:.1f}%", border=1, fill=True, align="C")
+            pdf.cell(35, 5.2, "OVERWEIGHT (>25%)", border=1, fill=True, align="C")
+        else:
+            pdf.set_text_color(40, 167, 69)
+            pdf.cell(25, 5.2, f"{weight:.1f}%", border=1, fill=True, align="C")
+            pdf.cell(35, 5.2, "WITHIN LIMIT", border=1, fill=True, align="C")
+
+        pdf.set_text_color(74, 85, 104)
+        syms_str = ", ".join(data["symbols"])
+        pdf.cell(40, 5.2, syms_str[:22], border=1, fill=True, align="C")
+        pdf.ln(5.2)
+
+    pdf.ln(4)
+
+    # 3. Single-Stock Holdings & Risk Status Table
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(26, 54, 93)
+    pdf.cell(
+        0,
+        6,
+        "2. Single-Stock Allocation & Risk Exposure (Max Cap: 20.0%)",
+        new_x="LMARGIN",
+        new_y="NEXT",
+    )
+
+    stock_headers = [
+        ("Stock", 30),
+        ("Sector", 45),
+        ("Market Value", 30),
+        ("Weight (%)", 22),
+        ("P&L (%)", 25),
+        ("Protection Status", 38),
+    ]
+    pdf.set_fill_color(237, 242, 247)
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_text_color(45, 55, 72)
+    for title, width in stock_headers:
+        pdf.cell(width, 5.5, title, border=1, fill=True, align="C")
+    pdf.ln(5.5)
+
+    pdf.set_font("Helvetica", "", 8)
+    for idx, s in enumerate(review["stock_breakdown"]):
+        row_bg = (248, 250, 252) if idx % 2 == 1 else (255, 255, 255)
+        pdf.set_fill_color(*row_bg)
+
+        pdf.set_text_color(26, 54, 93)
+        pdf.cell(30, 5.2, f"  #{s['symbol']}", border=1, fill=True, align="L")
+        pdf.set_text_color(74, 85, 104)
+        pdf.cell(45, 5.2, s["sector"][:25], border=1, fill=True, align="L")
+        pdf.cell(30, 5.2, f"Rs. {s['market_value']:,.1f}", border=1, fill=True, align="R")
+
+        # Weight
+        is_stock_over = s["weight_pct"] > 20.0
+        if is_stock_over:
+            pdf.set_text_color(220, 53, 69)
+        else:
+            pdf.set_text_color(45, 55, 72)
+        pdf.cell(22, 5.2, f"{s['weight_pct']:.1f}%", border=1, fill=True, align="C")
+
+        # P&L %
+        pnl_val = s["pnl_pct"]
+        if pnl_val >= 0:
+            pdf.set_text_color(40, 167, 69)
+            pnl_txt = f"+{pnl_val:.2f}%"
+        else:
+            pdf.set_text_color(220, 53, 69)
+            pnl_txt = f"{pnl_val:.2f}%"
+        pdf.cell(25, 5.2, pnl_txt, border=1, fill=True, align="C")
+
+        # Risk Status
+        if s["is_risk_free"]:
+            pdf.set_text_color(40, 167, 69)
+            pdf.cell(38, 5.2, "RISK-FREE (Trailing BE)", border=1, fill=True, align="C")
+        else:
+            pdf.set_text_color(214, 158, 46)
+            pdf.cell(38, 5.2, "ACTIVE STOP LOSS", border=1, fill=True, align="C")
+        pdf.ln(5.2)
+
+    pdf.ln(5)
+
+    # 4. Rebalance & Risk Recommendations Box
+    pdf.set_fill_color(237, 242, 247)
+    pdf.set_draw_color(49, 130, 206)
+    pdf.set_line_width(0.6)
+
+    box_y = pdf.get_y()
+    pdf.rect(10, box_y, 190, 26, "DF")
+    pdf.set_xy(14, box_y + 2)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(43, 108, 176)
+    pdf.cell(0, 5, "REBALANCE & RISK AUDIT RECOMMENDATIONS", new_x="LMARGIN", new_y="NEXT")
+
+    pdf.set_font("Helvetica", "", 8.5)
+    pdf.set_text_color(45, 55, 72)
+    pdf.set_x(14)
+    for rec in review["recommendations"][:3]:
+        pdf.set_x(14)
+        pdf.cell(0, 4.5, f"- {rec[:100]}", new_x="LMARGIN", new_y="NEXT")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    pdf.output(str(output_path))
+    return output_path
+
+
 def run_core_portfolio_review(
     state_file: Path = DEFAULT_STATE_FILE,
     output_dir: Path | None = None,
     send_telegram: bool = False,
 ) -> dict[str, Any]:
-    """Execute weekly core portfolio audit."""
+    """Execute weekly core portfolio audit, generate PDF and markdown reports."""
     if not state_file.exists():
         return {"status": "error", "message": f"State file not found at {state_file}"}
 
@@ -226,38 +438,46 @@ def run_core_portfolio_review(
     review = evaluate_core_portfolio(state)
     md_report = format_core_portfolio_markdown(review)
 
-    if output_dir:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        rep_path = output_dir / f"core_portfolio_weekly_{review['date']}.md"
-        with open(rep_path, "w", encoding="utf-8") as f:
-            f.write(md_report)
+    target_dir = output_dir or (ROOT_DIR / "reports")
+    target_dir.mkdir(parents=True, exist_ok=True)
 
+    rep_path = target_dir / f"core_portfolio_weekly_{review['date']}.md"
+    with open(rep_path, "w", encoding="utf-8") as f:
+        f.write(md_report)
+
+    pdf_path = target_dir / f"core_portfolio_weekly_{review['date']}.pdf"
+    build_core_portfolio_pdf(review, pdf_path)
+
+    telegram_delivered = False
     if send_telegram:
         try:
             from scripts.telegram_notifier import TelegramNotifier
 
             notifier = TelegramNotifier()
             if notifier.is_configured:
-                # Send compact summary
-                lines = [
-                    "🏛️ <b>CORE PORTFOLIO WEEKLY REVIEW</b>",
-                    f"<i>Date: {review['date']}</i>",
+                # Build rich executive caption
+                caption_lines = [
+                    "🏛️ <b>CORE PORTFOLIO WEEKLY REVIEW & RISK AUDIT</b>",
+                    f"<i>Audit Date: {review['date']}</i>",
                     "━━━━━━━━━━━━━━━━━━━━━",
-                    f"• <b>Equity:</b> ₹{review['portfolio_equity']:,.2f}",
-                    f"• <b>Cash:</b> ₹{review['cash']:,.2f} ({review['cash_pct']}%)",
+                    f"• <b>Total Equity:</b> ₹{review['portfolio_equity']:,.2f}",
+                    f"• <b>Cash Reserves:</b> ₹{review['cash']:,.2f} ({review['cash_pct']}%)",
                     f"• <b>Holdings:</b> {review['positions_count']} positions",
-                    f"• <b>Risk-Free Ratio:</b> {review['risk_free_ratio_pct']}% protected 🛡️",
+                    f"• <b>Capital Protection:</b> {review['risk_free_ratio_pct']}% risk-free 🛡️",
                     "",
-                    "<b>Top Sector Allocations:</b>",
+                    "<b>Top Sectors:</b>",
                 ]
-                for sec, d in list(review["sector_breakdown"].items())[:4]:
-                    lines.append(f"• {sec}: <b>{d['weight_pct']}%</b>")
+                for sec, d in list(review["sector_breakdown"].items())[:3]:
+                    caption_lines.append(f"• {sec}: <b>{d['weight_pct']}%</b>")
                 if review["warnings"]:
-                    lines.append("\n⚠️ <b>Concentration Alerts:</b>")
-                    for w in review["warnings"]:
-                        lines.append(f"• {w}")
-                lines.append("━━━━━━━━━━━━━━━━━━━━━")
-                notifier.send_message("\n".join(lines))
+                    caption_lines.append("\n⚠️ <b>Alerts:</b>")
+                    for w in review["warnings"][:2]:
+                        caption_lines.append(f"• {w}")
+                caption_lines.append("\nDetailed allocation & risk matrix attached in PDF below 👇")
+
+                telegram_delivered = notifier.send_document(
+                    pdf_path, caption="\n".join(caption_lines)
+                )
         except Exception as e:
             print(f"Warning: Failed to send Telegram core portfolio update: {e}")
 
@@ -265,10 +485,34 @@ def run_core_portfolio_review(
         "status": "success",
         "review": review,
         "markdown": md_report,
+        "pdf_path": str(pdf_path),
+        "telegram_delivered": telegram_delivered,
     }
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Core Portfolio Weekly Review & Audit.")
+    parser.add_argument(
+        "--state-file", type=Path, default=DEFAULT_STATE_FILE, help="Path to state file"
+    )
+    parser.add_argument(
+        "--output-dir", type=Path, default=None, help="Output directory for reports"
+    )
+    parser.add_argument("--send-telegram", action="store_true", help="Send PDF report via Telegram")
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    res = run_core_portfolio_review(send_telegram=False)
+    import argparse
+
+    args = parse_args()
+    res = run_core_portfolio_review(
+        state_file=args.state_file,
+        output_dir=args.output_dir,
+        send_telegram=args.send_telegram,
+    )
     if res.get("status") == "success":
+        print(f"Core portfolio review generated: {res.get('pdf_path')}")
+        if res.get("telegram_delivered"):
+            print("PDF successfully delivered to Telegram!")
         print(res["markdown"])
