@@ -31,7 +31,7 @@ class TestMarketRegimeDaily(unittest.TestCase):
         res = evaluate_nifty_regime(dates, closes)
         self.assertEqual(res["status"], "INSUFFICIENT_DATA")
         self.assertEqual(res["posture"], "RESTRICT")
-        self.assertEqual(res["max_positions_cap"], 2)
+        self.assertEqual(res["max_positions_cap"], 5)
 
     def test_evaluate_nifty_regime_confirmed_uptrend(self):
         # 260 days of steadily ascending prices
@@ -41,7 +41,7 @@ class TestMarketRegimeDaily(unittest.TestCase):
 
         self.assertEqual(res["status"], "CONFIRMED_UPTREND")
         self.assertEqual(res["posture"], "ALLOW")
-        self.assertEqual(res["max_positions_cap"], 5)
+        self.assertEqual(res["max_positions_cap"], 10)
         self.assertTrue(res["metrics"]["above_50_sma"])
         self.assertTrue(res["metrics"]["above_200_sma"])
         self.assertTrue(res["metrics"]["sma_50_above_200"])
@@ -58,7 +58,7 @@ class TestMarketRegimeDaily(unittest.TestCase):
         res = evaluate_nifty_regime(dates, closes)
         self.assertEqual(res["status"], "UPTREND_UNDER_PRESSURE")
         self.assertEqual(res["posture"], "RESTRICT")
-        self.assertEqual(res["max_positions_cap"], 2)
+        self.assertEqual(res["max_positions_cap"], 5)
         self.assertFalse(res["metrics"]["above_50_sma"])
         self.assertTrue(res["metrics"]["above_200_sma"])
 
@@ -109,6 +109,12 @@ class TestMarketRegimeDaily(unittest.TestCase):
             res["status"], ["CONFIRMED_UPTREND", "UPTREND_UNDER_PRESSURE", "MARKET_CORRECTION"]
         )
         self.assertIn("metrics", res)
+
+    def test_evaluate_nifty_regime_custom_max_positions(self):
+        closes = [100.0 + i * 0.5 for i in range(260)]
+        dates = [f"day_{i}" for i in range(260)]
+        res = evaluate_nifty_regime(dates, closes, max_positions=5)
+        self.assertEqual(res["max_positions_cap"], 5)
 
 
 if __name__ == "__main__":

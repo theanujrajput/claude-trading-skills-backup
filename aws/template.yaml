@@ -15,7 +15,7 @@ Parameters:
     Description: 'Risk percentage per trade (e.g. 1.0 for 1%)'
   MaxPositions:
     Type: Number
-    Default: 5
+    Default: 10
     Description: 'Maximum concurrent active swing positions'
   TelegramBotToken:
     Type: String

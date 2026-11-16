@@ -13,7 +13,7 @@ Environment Variables:
     S3_KEY: S3 object key (Default: "state/paper_trading_state.json")
     INITIAL_CAPITAL: Account initial capital if state file not found (Default: "500000.0")
     RISK_PCT: Risk percentage per trade (Default: "1.0")
-    MAX_POSITIONS: Maximum concurrent positions (Default: "5")
+    MAX_POSITIONS: Maximum concurrent positions (Default: "10")
     AUTO_BUY: Whether to enter new trades (Default: "true")
     SNS_TOPIC_ARN: Optional Amazon SNS topic ARN for email/SMS notifications
     TELEGRAM_BOT_TOKEN: Optional Telegram Bot Token
@@ -110,7 +110,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     s3_key = os.environ.get("S3_KEY", "state/paper_trading_state.json")
     default_capital = float(os.environ.get("INITIAL_CAPITAL", "500000.0"))
     risk_pct = float(os.environ.get("RISK_PCT", "1.0"))
-    max_positions = int(os.environ.get("MAX_POSITIONS", "5"))
+    max_positions = int(os.environ.get("MAX_POSITIONS", "10"))
     auto_buy = os.environ.get("AUTO_BUY", "true").lower() in ("true", "1", "yes")
     cooldown_days = int(os.environ.get("COOLDOWN_DAYS", "5"))
 

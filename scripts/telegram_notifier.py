@@ -253,7 +253,7 @@ class TelegramNotifier:
         cash: float,
         active_positions: dict[str, Any],
         closed_trades: list[dict[str, Any]],
-        max_positions: int = 5,
+        max_positions: int = 10,
     ) -> bool:
         """Send comprehensive End-of-Day (EOD) portfolio status digest."""
         if not self.is_configured:

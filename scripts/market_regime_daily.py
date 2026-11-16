@@ -38,17 +38,19 @@ def evaluate_nifty_regime(
     dates: list[str],
     closes: list[float],
     volumes: list[float] | None = None,
+    max_positions: int = 10,
 ) -> dict[str, Any]:
     """
     Evaluate NIFTY 50 trend template and classify the daily market regime.
     """
     n = len(closes)
+    defensive_cap = max(1, max_positions // 2)
     if n < 200:
         return {
             "status": "INSUFFICIENT_DATA",
             "posture": "RESTRICT",
             "reason": f"Insufficient bars ({n} < 200) to evaluate 200 SMA regime",
-            "max_positions_cap": 2,
+            "max_positions_cap": defensive_cap,
             "metrics": {},
         }
 
@@ -92,7 +94,7 @@ def evaluate_nifty_regime(
             "status": "CONFIRMED_UPTREND",
             "posture": "ALLOW",
             "reason": "NIFTY 50 trading above rising 50 SMA and 200 SMA (Strong Bullish Alignment)",
-            "max_positions_cap": 5,
+            "max_positions_cap": max_positions,
             "metrics": metrics,
         }
     elif above_200_sma:
@@ -101,9 +103,9 @@ def evaluate_nifty_regime(
             "posture": "RESTRICT",
             "reason": (
                 "NIFTY 50 below 50 SMA or moving average slope flattening; "
-                "defensive posture (capped at 2 positions, require high RVOL)"
+                f"defensive posture (capped at {defensive_cap} positions, require high RVOL)"
             ),
-            "max_positions_cap": 2,
+            "max_positions_cap": defensive_cap,
             "metrics": metrics,
         }
     else:
@@ -155,8 +157,9 @@ def fetch_nifty_daily_bars(period: str = "1y") -> tuple[list[str], list[float], 
     return dates, closes, volumes
 
 
-def get_current_market_regime() -> dict[str, Any]:
+def get_current_market_regime(max_positions: int = 10) -> dict[str, Any]:
     """Fetch live NIFTY 50 data and evaluate the current market regime."""
+    defensive_cap = max(1, max_positions // 2)
     try:
         dates, closes, volumes = fetch_nifty_daily_bars()
         if not closes:
@@ -164,16 +167,16 @@ def get_current_market_regime() -> dict[str, Any]:
                 "status": "FETCH_ERROR",
                 "posture": "RESTRICT",
                 "reason": "Unable to fetch NIFTY 50 data from market data provider",
-                "max_positions_cap": 2,
+                "max_positions_cap": defensive_cap,
                 "metrics": {},
             }
-        return evaluate_nifty_regime(dates, closes, volumes)
+        return evaluate_nifty_regime(dates, closes, volumes, max_positions=max_positions)
     except Exception as e:
         return {
             "status": "ERROR",
             "posture": "RESTRICT",
             "reason": f"Market regime evaluation error: {e}",
-            "max_positions_cap": 2,
+            "max_positions_cap": defensive_cap,
             "metrics": {},
         }
 

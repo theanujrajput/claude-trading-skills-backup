@@ -78,7 +78,7 @@ def run_daily_cycle(
     universe_symbols: list[str] = NIFTY_SMALLCAP_250_TICKERS,
     strategy: str = "breakout",
     risk_pct: float = 1.0,
-    max_positions: int = 5,
+    max_positions: int = 10,
     auto_buy: bool = True,
     scan_limit: int | None = None,
     check_market_hours: bool = False,
@@ -142,7 +142,7 @@ def run_daily_cycle(
     regime_cash_priority = False
     if not skip_regime_check:
         try:
-            regime_result = get_current_market_regime()
+            regime_result = get_current_market_regime(max_positions=max_positions)
             posture = regime_result.get("posture")
             status_desc = regime_result.get("status")
             cycle_log.append(
@@ -152,7 +152,7 @@ def run_daily_cycle(
             if posture == "CASH_PRIORITY":
                 regime_cash_priority = True
             elif posture == "RESTRICT":
-                cap = regime_result.get("max_positions_cap", 2)
+                cap = regime_result.get("max_positions_cap", max_positions)
                 if cap < max_positions:
                     cycle_log.append(
                         f"Regime Gate: Restricting maximum positions from {max_positions} to {cap}."
@@ -282,7 +282,7 @@ def run_daily_cycle(
                 max_risk_amount = (risk_pct / 100.0) * portfolio_equity
                 calculated_qty = int(max_risk_amount / risk_per_share) if risk_per_share > 0 else 0
 
-                # Max position size cap: 20% of equity
+                # Max position size cap: portfolio_equity / max_positions (e.g. 10% per slot)
                 max_capital_per_pos = portfolio_equity / max_positions
                 if (calculated_qty * entry_price) > max_capital_per_pos:
                     calculated_qty = int(max_capital_per_pos / entry_price)
@@ -371,8 +371,8 @@ def parse_args():
     parser.add_argument(
         "--max-positions",
         type=int,
-        default=5,
-        help="Maximum concurrent active positions (default: 5)",
+        default=10,
+        help="Maximum concurrent active positions (default: 10)",
     )
     parser.add_argument(
         "--limit",
