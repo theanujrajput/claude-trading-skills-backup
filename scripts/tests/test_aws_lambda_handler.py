@@ -120,6 +120,32 @@ class TestAWSLambdaHandler(unittest.TestCase):
             self.assertTrue(resp["body"]["telegram_delivered"])
             self.assertEqual(resp["body"]["active_positions_count"], 1)
 
+    @patch("scripts.aws_lambda_handler.boto3")
+    @patch("scripts.core_portfolio_weekly.run_core_portfolio_review")
+    @patch("scripts.aws_lambda_handler.sync_from_s3")
+    def test_lambda_handler_core_portfolio_review_action(
+        self, mock_from_s3, mock_review, mock_boto3
+    ):
+        mock_review.return_value = {
+            "status": "success",
+            "review": {
+                "date": "2026-11-16",
+                "portfolio_equity": 500000.0,
+                "cash": 500000.0,
+                "positions_count": 0,
+            },
+        }
+        with patch.dict("os.environ", {"S3_BUCKET_NAME": "test-trading-bucket"}):
+            resp = lambda_handler({"action": "core_portfolio_review"}, None)
+            self.assertEqual(resp["statusCode"], 200)
+            self.assertEqual(resp["body"]["action"], "core_portfolio_review")
+            self.assertFalse(resp["body"]["telegram_delivered"])
+            mock_review.assert_called_once_with(
+                state_file=Path("/tmp/paper_trading_state.json"),
+                output_dir=Path("/tmp/reports"),
+                send_telegram=False,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -32,6 +32,8 @@ from zoneinfo import ZoneInfo
 ROOT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT_DIR))
 
+from scripts.drawdown_circuit_breaker import evaluate_drawdown_circuit_breaker
+from scripts.market_regime_daily import get_current_market_regime
 from scripts.paper_trader import (
     DEFAULT_STATE_FILE,
     enter_position,
@@ -82,6 +84,8 @@ def run_daily_cycle(
     check_market_hours: bool = False,
     force_full_scan: bool = False,
     cooldown_days: int = 5,
+    skip_regime_check: bool = False,
+    skip_circuit_breaker: bool = False,
     state_file: Path = DEFAULT_STATE_FILE,
 ) -> dict[str, Any]:
     """Execute the full automated trading cycle."""
@@ -115,14 +119,49 @@ def run_daily_cycle(
     cycle_log.extend(update_events)
 
     # ---------------------------------------------------------
-    # STEP 2: Risk, Slots, and Capital Check
+    # STEP 2: Risk, Slots, Capital & Circuit Breakers
     # ---------------------------------------------------------
-    cycle_log.append("\n[Step 2: Portfolio Capacity & Risk Gate]")
+    cycle_log.append("\n[Step 2: Portfolio Capacity, Regime & Risk Gate]")
     active_count = len(state.get("active_positions", {}))
     available_cash = state.get("cash", 0.0)
     portfolio_equity = state.get("portfolio_equity", available_cash)
-    open_slots = max(0, max_positions - active_count)
 
+    # Account-level Drawdown Circuit Breaker
+    cb_result = None
+    circuit_breaker_tripped = False
+    if not skip_circuit_breaker:
+        cb_result = evaluate_drawdown_circuit_breaker(state)
+        if not cb_result.get("is_allowed", True):
+            circuit_breaker_tripped = True
+            cycle_log.append(f"⛔ Circuit Breaker TRIPPED: {cb_result.get('reason')}")
+        else:
+            cycle_log.append("✔ Circuit Breaker: CLEAR (Account risk within thresholds)")
+
+    # Macro Benchmark Market Regime Check
+    regime_result = None
+    regime_cash_priority = False
+    if not skip_regime_check:
+        try:
+            regime_result = get_current_market_regime()
+            posture = regime_result.get("posture")
+            status_desc = regime_result.get("status")
+            cycle_log.append(
+                f"Market Regime: {status_desc} ({posture}) - {regime_result.get('reason')}"
+            )
+
+            if posture == "CASH_PRIORITY":
+                regime_cash_priority = True
+            elif posture == "RESTRICT":
+                cap = regime_result.get("max_positions_cap", 2)
+                if cap < max_positions:
+                    cycle_log.append(
+                        f"Regime Gate: Restricting maximum positions from {max_positions} to {cap}."
+                    )
+                    max_positions = cap
+        except Exception as e:
+            cycle_log.append(f"Warning: Failed to fetch market regime: {e}")
+
+    open_slots = max(0, max_positions - active_count)
     cycle_log.append(
         f"Active Positions: {active_count}/{max_positions} | Available Slots: {open_slots} | "
         f"Available Cash: ₹{available_cash:,.2f} | Total Equity: ₹{portfolio_equity:,.2f}"
@@ -130,9 +169,15 @@ def run_daily_cycle(
 
     new_trades_placed = []
 
-    if open_slots <= 0:
+    if circuit_breaker_tripped:
+        cycle_log.append("Trading halted by Drawdown Circuit Breaker. Skipping new entries.")
+    elif regime_cash_priority:
         cycle_log.append(
-            "Portfolio is at maximum capacity (5/5 slots filled). Skipping new entries."
+            "Market in Correction / Bearish Alignment. Skipping new entries to preserve cash."
+        )
+    elif open_slots <= 0:
+        cycle_log.append(
+            f"Portfolio is at maximum capacity ({active_count}/{max_positions} slots filled). Skipping new entries."
         )
     elif available_cash < 5000:
         cycle_log.append(f"Insufficient cash (₹{available_cash:,.2f}) to enter new trades.")
@@ -291,6 +336,8 @@ def run_daily_cycle(
         "cash": state.get("cash", 0.0),
         "active_positions_count": len(state.get("active_positions", {})),
         "new_trades": new_trades_placed,
+        "circuit_breaker": cb_result,
+        "market_regime": regime_result,
         "digest": digest_text,
     }
 
@@ -351,6 +398,16 @@ def parse_args():
         help="Lockout cooldown days before re-entering a recently closed stock (default: 5)",
     )
     parser.add_argument(
+        "--skip-regime-check",
+        action="store_true",
+        help="Skip NIFTY 50 macro market regime evaluation",
+    )
+    parser.add_argument(
+        "--skip-circuit-breaker",
+        action="store_true",
+        help="Skip account-level drawdown circuit breaker check",
+    )
+    parser.add_argument(
         "--output-dir",
         type=str,
         default=None,
@@ -370,6 +427,8 @@ def main():
         check_market_hours=args.check_market_hours,
         force_full_scan=args.force_full_scan,
         cooldown_days=args.cooldown_days,
+        skip_regime_check=args.skip_regime_check,
+        skip_circuit_breaker=args.skip_circuit_breaker,
         state_file=args.state_file,
     )
 

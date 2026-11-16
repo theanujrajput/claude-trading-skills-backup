@@ -184,8 +184,42 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             },
         }
 
+    # Check if this invocation is for the Weekly Core Portfolio Review
+    if event.get("action") == "core_portfolio_review":
+        print("Received Core Portfolio Review trigger...")
+        sync_from_s3(s3_client, bucket_name, s3_key, LOCAL_TEMP_STATE, default_capital)
+
+        from scripts.core_portfolio_weekly import run_core_portfolio_review
+
+        send_telegram = event.get("send_telegram", False)
+        review_result = run_core_portfolio_review(
+            state_file=LOCAL_TEMP_STATE,
+            output_dir=Path("/tmp/reports"),
+            send_telegram=send_telegram,
+        )
+        return {
+            "statusCode": 200,
+            "body": {
+                "status": "success",
+                "action": "core_portfolio_review",
+                "telegram_delivered": send_telegram,
+                "review": review_result.get("review", {}),
+            },
+        }
+
     # 1. Download state from S3
     sync_from_s3(s3_client, bucket_name, s3_key, LOCAL_TEMP_STATE, default_capital)
+
+    skip_regime_check = os.environ.get("SKIP_REGIME_CHECK", "false").lower() in (
+        "true",
+        "1",
+        "yes",
+    ) or event.get("skip_regime_check", False)
+    skip_circuit_breaker = os.environ.get("SKIP_CIRCUIT_BREAKER", "false").lower() in (
+        "true",
+        "1",
+        "yes",
+    ) or event.get("skip_circuit_breaker", False)
 
     # 2. Run trading cycle
     result = run_daily_cycle(
@@ -195,6 +229,8 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         auto_buy=auto_buy,
         check_market_hours=check_market_hours,
         cooldown_days=cooldown_days,
+        skip_regime_check=skip_regime_check,
+        skip_circuit_breaker=skip_circuit_breaker,
         state_file=LOCAL_TEMP_STATE,
     )
 

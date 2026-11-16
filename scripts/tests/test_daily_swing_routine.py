@@ -13,11 +13,15 @@ from scripts.paper_trader import init_account
 
 class TestDailySwingRoutine(unittest.TestCase):
     def setUp(self):
+        self.telegram_patcher = patch("scripts.telegram_notifier.TelegramNotifier")
+        self.mock_notifier = self.telegram_patcher.start()
+        self.mock_notifier.return_value.is_configured = False
         self.temp_dir = tempfile.TemporaryDirectory()
         self.state_file = Path(self.temp_dir.name) / "test_cycle_state.json"
         init_account(500000.0, self.state_file)
 
     def tearDown(self):
+        self.telegram_patcher.stop()
         self.temp_dir.cleanup()
 
     @patch("scripts.daily_swing_routine.run_screener")
@@ -258,6 +262,127 @@ class TestDailySwingRoutine(unittest.TestCase):
 
         # Should be allowed to re-enter!
         self.assertIn("OLDEXIT", result["new_trades"])
+
+    @patch("scripts.daily_swing_routine.evaluate_drawdown_circuit_breaker")
+    @patch("scripts.daily_swing_routine.run_screener")
+    @patch("scripts.daily_swing_routine.update_market_prices")
+    def test_circuit_breaker_halts_buying(self, mock_update, mock_screener, mock_cb):
+        mock_update.return_value = (
+            ["Prices ok"],
+            {
+                "initial_capital": 500000.0,
+                "cash": 500000.0,
+                "portfolio_equity": 500000.0,
+                "active_positions": {},
+                "closed_trades": [],
+            },
+        )
+        mock_cb.return_value = {
+            "is_allowed": False,
+            "status": "HALTED_DAILY_LOSS",
+            "reason": "Daily realized loss limit reached",
+            "metrics": {},
+        }
+        mock_screener.return_value = [
+            {
+                "symbol": "TESTSYM",
+                "close": 500.0,
+                "setup": "BREAKOUT",
+                "trend_template_score": "7/7",
+            }
+        ]
+
+        result = run_daily_cycle(
+            auto_buy=True,
+            state_file=self.state_file,
+        )
+
+        self.assertEqual(result["new_trades"], [])
+        self.assertIn("Circuit Breaker TRIPPED", result["digest"])
+        mock_screener.assert_not_called()
+
+    @patch("scripts.daily_swing_routine.get_current_market_regime")
+    @patch("scripts.daily_swing_routine.run_screener")
+    @patch("scripts.daily_swing_routine.update_market_prices")
+    def test_market_regime_cash_priority_halts_buying(
+        self, mock_update, mock_screener, mock_regime
+    ):
+        mock_update.return_value = (
+            ["Prices ok"],
+            {
+                "initial_capital": 500000.0,
+                "cash": 500000.0,
+                "portfolio_equity": 500000.0,
+                "active_positions": {},
+                "closed_trades": [],
+            },
+        )
+        mock_regime.return_value = {
+            "status": "MARKET_CORRECTION",
+            "posture": "CASH_PRIORITY",
+            "reason": "NIFTY 50 trading below 200 SMA",
+            "max_positions_cap": 0,
+        }
+        mock_screener.return_value = [
+            {
+                "symbol": "TESTSYM",
+                "close": 500.0,
+                "setup": "BREAKOUT",
+                "trend_template_score": "7/7",
+            }
+        ]
+
+        result = run_daily_cycle(
+            auto_buy=True,
+            state_file=self.state_file,
+        )
+
+        self.assertEqual(result["new_trades"], [])
+        self.assertIn("Market in Correction", result["digest"])
+        mock_screener.assert_not_called()
+
+    @patch("scripts.daily_swing_routine.get_current_market_regime")
+    @patch("scripts.daily_swing_routine.run_screener")
+    @patch("scripts.daily_swing_routine.update_market_prices")
+    def test_market_regime_restrict_caps_positions(self, mock_update, mock_screener, mock_regime):
+        # 2 active positions already open, max_positions defaults to 5, but regime caps at 2
+        mock_update.return_value = (
+            ["Prices ok"],
+            {
+                "initial_capital": 500000.0,
+                "cash": 300000.0,
+                "portfolio_equity": 500000.0,
+                "active_positions": {
+                    "STOCKA": {"symbol": "STOCKA", "market_value": 100000.0},
+                    "STOCKB": {"symbol": "STOCKB", "market_value": 100000.0},
+                },
+                "closed_trades": [],
+            },
+        )
+        mock_regime.return_value = {
+            "status": "UPTREND_UNDER_PRESSURE",
+            "posture": "RESTRICT",
+            "reason": "NIFTY below 50 SMA",
+            "max_positions_cap": 2,
+        }
+        mock_screener.return_value = [
+            {
+                "symbol": "TESTSYM",
+                "close": 500.0,
+                "setup": "BREAKOUT",
+                "trend_template_score": "7/7",
+            }
+        ]
+
+        result = run_daily_cycle(
+            auto_buy=True,
+            max_positions=5,
+            state_file=self.state_file,
+        )
+
+        self.assertEqual(result["new_trades"], [])
+        self.assertIn("Restricting maximum positions from 5 to 2", result["digest"])
+        self.assertIn("Portfolio is at maximum capacity (2/2 slots filled)", result["digest"])
 
 
 if __name__ == "__main__":
