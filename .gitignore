@@ -21,6 +21,10 @@ env/
 .vscode/
 .claude/
 .envrc
+.env
+.env.*
+build_lambda/
+function.zip
 .mcp.json
 
 # Local provider/API caches. Never commit credentials or raw provider payloads.

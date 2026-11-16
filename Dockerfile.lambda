@@ -1,0 +1,17 @@
+FROM public.ecr.aws/lambda/python:3.11
+
+# Install runtime dependencies for market scanning & sizing
+RUN pip install --no-cache-dir \
+    yfinance \
+    pandas \
+    numpy \
+    scipy \
+    requests \
+    pyyaml \
+    boto3
+
+# Copy repository scripts into Lambda root
+COPY scripts/ ${LAMBDA_TASK_ROOT}/scripts/
+
+# Set the entrypoint handler
+CMD [ "scripts.aws_lambda_handler.lambda_handler" ]

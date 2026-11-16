@@ -2,9 +2,25 @@ version = 1
 revision = 5
 requires-python = ">=3.11.5, <3.14"
 resolution-markers = [
-    "sys_platform == 'win32'",
-    "sys_platform == 'emscripten'",
-    "sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.12' and sys_platform == 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and sys_platform == 'emscripten'",
+    "python_full_version < '3.12' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
+
+[[package]]
+name = "anyio"
+version = "4.14.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "idna" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/61/cc/a381afa6efea9f496eff839d4a6a1aed3bfafc7b3ab4b0d1b243a12573dd/anyio-4.14.2.tar.gz", hash = "sha256:cfa139f3ed1a23ee8f88a145ddb5ac7605b8bbfd8592baacd7ce3d8bb4313c7f", size = 260176, upload-time = "2026-07-12T20:29:07.082Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/da/35/f2287558c17e29fafc8ef3daf819bb9834061cfa43bff8014f7df7f63bdc/anyio-4.14.2-py3-none-any.whl", hash = "sha256:9f505dda5ac9f0c8309b5e8bd445a8c2bf7246f3ce950121e45ea15bc41d1494", size = 125813, upload-time = "2026-07-12T20:29:05.763Z" },
 ]
 
 [[package]]
@@ -232,6 +248,10 @@ dev = [
 market-calendar = [
     { name = "pandas-market-calendars" },
 ]
+openalgo = [
+    { name = "openalgo", version = "1.0.47", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "openalgo", version = "2.0.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -241,6 +261,7 @@ requires-dist = [
     { name = "detect-secrets", marker = "extra == 'dev'", specifier = ">=1.5.0" },
     { name = "jsonschema", specifier = ">=4.25.1" },
     { name = "lxml", marker = "extra == 'ci'" },
+    { name = "openalgo", marker = "extra == 'openalgo'", specifier = ">=1.0.47" },
     { name = "opencv-python-headless", marker = "extra == 'ci'", specifier = ">=4.8" },
     { name = "packaging", specifier = ">=24.0" },
     { name = "pandas-market-calendars", marker = "extra == 'ci'", specifier = "==5.2.2" },
@@ -258,7 +279,7 @@ requires-dist = [
     { name = "statsmodels", marker = "extra == 'ci'", specifier = ">=0.14,<0.15" },
     { name = "yfinance", specifier = ">=0.2.0" },
 ]
-provides-extras = ["market-calendar", "dev", "ci"]
+provides-extras = ["openalgo", "market-calendar", "dev", "ci"]
 
 [[package]]
 name = "codespell"
@@ -450,6 +471,43 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d8/28/3893324bcadf8f89b1616637468d766af3f625008c0735bf704fdfa86617/filelock-4.2.4.tar.gz", hash = "sha256:c6d8663535e1650ee430507b4ffbac7b464dd64b7647ea0112a9f406499d163d", size = 652444, upload-time = "2026-10-19T01:57:51.001Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e0/1b/5e74289a1878e666bb4b65fe5805a04cafcac2aa5f519ef1ead67ef91c56/filelock-4.2.4-py3-none-any.whl", hash = "sha256:301241438c57936ef93f4243a94f2559022268bfcf9b375a9a72eb0f8db8358e", size = 162475, upload-time = "2026-10-19T01:57:49.419Z" },
+]
+
+[[package]]
+name = "h11"
+version = "0.16.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/01/ee/02a2c011bdab74c6fb3c75474d40b3052059d95df7e73351460c8588d963/h11-0.16.0.tar.gz", hash = "sha256:4e35b956cf45792e4caa5885e69fba00bdbc6ffafbfa020300e549b208ee5ff1", size = 101250, upload-time = "2025-04-24T03:35:25.427Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl", hash = "sha256:63cf8bbe7522de3bf65932fda1d9c2772064ffb3dae62d55932da54b31cb6c86", size = 37515, upload-time = "2025-04-24T03:35:24.344Z" },
+]
+
+[[package]]
+name = "httpcore"
+version = "1.0.9"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "certifi" },
+    { name = "h11" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/06/94/82699a10bca87a5556c9c59b5963f2d039dbd239f25bc2a63907a05a14cb/httpcore-1.0.9.tar.gz", hash = "sha256:6e34463af53fd2ab5d807f399a9b45ea31c3dfa2276f15a2c3f00afff6e176e8", size = 85484, upload-time = "2025-04-24T22:06:22.219Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7e/f5/f66802a942d491edb555dd61e3a9961140fd64c90bce1eafd741609d334d/httpcore-1.0.9-py3-none-any.whl", hash = "sha256:2d400746a40668fc9dec9810239072b40b4484b640a8c38fd654a024c7a1bf55", size = 78784, upload-time = "2025-04-24T22:06:20.566Z" },
+]
+
+[[package]]
+name = "httpx"
+version = "0.28.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "certifi" },
+    { name = "httpcore" },
+    { name = "idna" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b1/df/48c586a5fe32a0f01324ee087459e112ebb7224f646c0b5023f5e79e9956/httpx-0.28.1.tar.gz", hash = "sha256:75e98c5f16b0f35b567856f597f06ff2270a374470a5c2392242528e3e3e42fc", size = 141406, upload-time = "2024-12-06T15:37:23.222Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl", hash = "sha256:d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad", size = 73517, upload-time = "2024-12-06T15:37:21.509Z" },
 ]
 
 [[package]]
@@ -721,6 +779,50 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/58/ad/1100d7229bb248394939a12a8074d485b655e8ed44207d328fdd7fcebc7b/numpy-2.4.3-pp311-pypy311_pp73-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:7e58765ad74dcebd3ef0208a5078fba32dc8ec3578fe84a604432950cd043d79", size = 15800434, upload-time = "2026-03-09T07:58:44.837Z" },
     { url = "https://files.pythonhosted.org/packages/0c/fd/16d710c085d28ba4feaf29ac60c936c9d662e390344f94a6beaa2ac9899b/numpy-2.4.3-pp311-pypy311_pp73-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:8e236dbda4e1d319d681afcbb136c0c4a8e0f1a5c58ceec2adebb547357fe857", size = 16729409, upload-time = "2026-03-09T07:58:47.972Z" },
     { url = "https://files.pythonhosted.org/packages/57/a7/b35835e278c18b85206834b3aa3abe68e77a98769c59233d1f6300284781/numpy-2.4.3-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:4b42639cdde6d24e732ff823a3fa5b701d8acad89c4142bc1d0bd6dc85200ba5", size = 12504685, upload-time = "2026-03-09T07:58:50.525Z" },
+]
+
+[[package]]
+name = "openalgo"
+version = "1.0.47"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.12' and sys_platform == 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'emscripten'",
+    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
+dependencies = [
+    { name = "httpx" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "websocket-client" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/80/2e/9ef1f7edf154b9cfa54ef06406cf3a1f1f981df335f4fe1d9ae51ffd88ac/openalgo-1.0.47.tar.gz", hash = "sha256:4bcc2750201ebaec047525f6b92741498d2a65bd8b5afa1123e60e81caff600a", size = 113655, upload-time = "2026-04-09T08:59:53.257Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/75/f7/58326f4fd4f2c3b1db501328ba9c595875a0757e73c798202fee6d20b63a/openalgo-1.0.47-py3-none-any.whl", hash = "sha256:7e853e9f65e8e164e9ba7d24c22b55da8c504d2b78f451e158f5bcd8df54a9b4", size = 114711, upload-time = "2026-04-09T08:59:51.706Z" },
+]
+
+[[package]]
+name = "openalgo"
+version = "2.0.5"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.12' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
+dependencies = [
+    { name = "httpx" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "websocket-client" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/79/11/924146f63ef8e1f67b05377fb224c141bd96da5bbe567d96dd6b6af62f62/openalgo-2.0.5.tar.gz", hash = "sha256:675d6eb592ef105e4647166d0abd30bb95d668cf7353403e31436b7ef6ced2d6", size = 186521, upload-time = "2026-09-11T06:41:33.581Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d9/78/7be6d35e12c3951e14b93dbe231fca03bf6279edac8fe503a4b690b0ac18/openalgo-2.0.5-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:c20b01e3a7413ed62b7c5d8342ecc6c01c200abf8cf13f8394e693e1ae84fc28", size = 466505, upload-time = "2026-09-11T06:41:25.172Z" },
+    { url = "https://files.pythonhosted.org/packages/d0/3f/d36e1a868d4396cbcac5225702f05a49f29c8b83760abcb89c5436efebdd/openalgo-2.0.5-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:70303029bfccb31be58cae5036292a33eeeaae506654955586b432fab424fbe0", size = 448026, upload-time = "2026-09-11T06:41:27.322Z" },
+    { url = "https://files.pythonhosted.org/packages/6f/d5/f758948d0e7346e446c00a4970014bf40bf288f24385a8eb08170e62e1df/openalgo-2.0.5-cp39-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:62458dd7d583640bd39e8a27062837d696e647bdeb262596f71abbfabbc4ba62", size = 460796, upload-time = "2026-09-11T06:41:29.05Z" },
+    { url = "https://files.pythonhosted.org/packages/bb/4e/09a829e646165728bec27c007df86294003e9e249245e2cc203c5b8a4c6c/openalgo-2.0.5-cp39-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:299b8c8745519aca2a8d7795b68b6d386d54f080aa0370a928117c3b634f63ba", size = 482003, upload-time = "2026-09-11T06:41:30.572Z" },
+    { url = "https://files.pythonhosted.org/packages/7f/b6/c9ae5eba70ace27524ac02a7d0054d5cea407a4a9af12cfacfa2d83f6c05/openalgo-2.0.5-cp39-abi3-win_amd64.whl", hash = "sha256:1fe20400e59bfaeea15877786fc5cc177b8fa8599167fbea69a3b801ad05b896", size = 424334, upload-time = "2026-09-11T06:41:32.254Z" },
 ]
 
 [[package]]
@@ -1529,6 +1631,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/70/aa/bff50daee0488e16d611258a9b6c5a1d0c9e128f8ca424e9f4e1c0444ef2/virtualenv-21.14.13.tar.gz", hash = "sha256:de5307ba4b9a0001d9c8ea02832d38f63ca432880f416c1bface61c4323fd905", size = 5570301, upload-time = "2026-10-22T20:10:16.952Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/bb/a9/c10d8a44a29fb94a18b43fdf11f38caca53ae7c9406f11a72b1cb8f624f1/virtualenv-21.14.13-py3-none-any.whl", hash = "sha256:5fbb04138a4861580b78ba9110d529a26bc48fcc93c8ec36bc0202eeed96a788", size = 5557094, upload-time = "2026-10-22T20:10:15.096Z" },
+]
+
+[[package]]
+name = "websocket-client"
+version = "1.9.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d8/cb/a5abcc2891249f393827c650c6296660ce40374ac22d99ab9aea41f9d2a2/websocket_client-1.9.2.tar.gz", hash = "sha256:0fcb57545848be86992e128218fd96dd87a6769ffdb1a968dff79632b85604d0", size = 84110, upload-time = "2026-08-31T14:08:40.964Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d5/d2/cc4dc1271e464942db7ee278baae2daa99ee77cb2af744025c04da585a3e/websocket_client-1.9.2-py3-none-any.whl", hash = "sha256:e1a673830a9c7bfa47b1cd3d5e4178f4c9651d80a4eab02c9c23a1c3ec6250ce", size = 95786, upload-time = "2026-08-31T14:08:39.899Z" },
 ]
 
 [[package]]

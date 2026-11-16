@@ -21,6 +21,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+openalgo = [
+    "openalgo>=1.0.47",
+]
 market-calendar = [
     "pandas-market-calendars==5.2.2",
 ]
@@ -169,7 +172,7 @@ skips = [
 
 [tool.codespell]
 skip = ".venv,*.json,*.csv,*.baseline,skill-packages,*.pyc,__pycache__"
-ignore-words-list = "trough,ore,cna,acn,blok,hims,pont,claus,theses"
+ignore-words-list = "trough,ore,cna,acn,blok,hims,pont,claus,theses,mis,ist"
 ignore-regex = "(Depósito|Deposito) inicial"  # codespell:ignore inicial
 
 [tool.coverage.run]

@@ -115,9 +115,12 @@ EXPECTED_COLUMNS = {"Sector", "Ratio", "10MA", "Trend", "Slope", "Status"}
 
 def fetch_csv(url: str, timeout: int = 30) -> list[dict]:
     """Fetch a CSV from *url* and return rows as list of dicts."""
+    import ssl
+
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "sector-analyst/1.0"})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        ctx = ssl._create_unverified_context()
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
             text = resp.read().decode("utf-8")
     except urllib.error.URLError as exc:
         print(f"ERROR: Failed to fetch {url}: {exc}", file=sys.stderr)
@@ -177,9 +180,12 @@ def check_freshness(uptrend_csv_url: str, timeout: int = 30) -> dict | None:
     Returns dict with 'date', 'is_fresh', 'warning' or None on failure.
     Fetch failures are treated as non-fatal (returns None with no ERROR log).
     """
+    import ssl
+
     try:
         req = urllib.request.Request(uptrend_csv_url, headers={"User-Agent": "sector-analyst/1.0"})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        ctx = ssl._create_unverified_context()
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
             text = resp.read().decode("utf-8")
         reader = csv.DictReader(io.StringIO(text))
         rows = list(reader)

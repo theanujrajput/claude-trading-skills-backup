@@ -1,0 +1,132 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Serverless Daily Swing Trading Routine for Indian Stock Market (EventBridge + Lambda + S3)'
+
+Parameters:
+  ImageUri:
+    Type: String
+    Description: 'ECR Image URI for the containerized Lambda function'
+  InitialCapital:
+    Type: Number
+    Default: 500000
+    Description: 'Initial Paper Trading Capital in ₹'
+  RiskPct:
+    Type: Number
+    Default: 1.0
+    Description: 'Risk percentage per trade (e.g. 1.0 for 1%)'
+  MaxPositions:
+    Type: Number
+    Default: 5
+    Description: 'Maximum concurrent active swing positions'
+  TelegramBotToken:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: 'Optional Telegram Bot Token for Buy/Sell alerts'
+  TelegramChatId:
+    Type: String
+    Default: ''
+    Description: 'Optional Telegram Chat ID for Buy/Sell alerts'
+
+Resources:
+  # 1. Persistent Storage for Portfolio State JSON
+  TradingStateBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+
+  # 2. Execution Role for Lambda Function
+  TradingLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: TradingS3StateAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - Fn::GetAtt: [TradingStateBucket, Arn]
+                  - Fn::Sub: '${TradingStateBucket.Arn}/*'
+
+  # 3. Containerized Lambda Function (15 min timeout, 1GB RAM)
+  DailySwingTradingFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      PackageType: Image
+      Code:
+        ImageUri:
+          Ref: ImageUri
+      Role:
+        Fn::GetAtt: [TradingLambdaRole, Arn]
+      Timeout: 900
+      MemorySize: 1024
+      Environment:
+        Variables:
+          S3_BUCKET_NAME:
+            Ref: TradingStateBucket
+          S3_KEY: state/paper_trading_state.json
+          INITIAL_CAPITAL:
+            Fn::Sub: '${InitialCapital}'
+          RISK_PCT:
+            Fn::Sub: '${RiskPct}'
+          MAX_POSITIONS:
+            Fn::Sub: '${MaxPositions}'
+          AUTO_BUY: 'true'
+          CHECK_MARKET_HOURS: 'true'
+          TELEGRAM_BOT_TOKEN:
+            Ref: TelegramBotToken
+          TELEGRAM_CHAT_ID:
+            Ref: TelegramChatId
+
+  # 4. Amazon EventBridge Rule: Every 15 min Mon-Fri during trading hours (09:15-15:30 IST)
+  MarketCloseScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: 'Triggers Indian stock market scan and paper trade routine every 15 minutes during trading hours (09:15-15:30 IST Mon-Fri)'
+      ScheduleExpression: 'cron(0/15 3-10 ? * MON-FRI *)'
+      State: ENABLED
+      Targets:
+        - Arn:
+            Fn::GetAtt: [DailySwingTradingFunction, Arn]
+          Id: 'DailySwingTradeTarget'
+
+  # 5. Permission for EventBridge to invoke Lambda
+  PermissionForEventsToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: DailySwingTradingFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt: [MarketCloseScheduleRule, Arn]
+
+Outputs:
+  S3BucketName:
+    Description: 'S3 Bucket storing paper trading state'
+    Value:
+      Ref: TradingStateBucket
+  LambdaFunctionArn:
+    Description: 'ARN of the Daily Swing Trading Lambda'
+    Value:
+      Fn::GetAtt: [DailySwingTradingFunction, Arn]

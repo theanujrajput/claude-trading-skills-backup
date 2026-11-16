@@ -1,0 +1,192 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Serverless Daily Swing Trading Routine for Indian Stock Market (Zip Deployment - No Docker Required)'
+
+Parameters:
+  S3CodeBucket:
+    Type: String
+    Description: 'S3 Bucket name where function.zip code package is uploaded'
+  S3CodeKey:
+    Type: String
+    Default: 'deploy/function.zip'
+    Description: 'S3 Key path for function.zip'
+  InitialCapital:
+    Type: Number
+    Default: 500000
+    Description: 'Initial Paper Trading Capital in ₹'
+  RiskPct:
+    Type: Number
+    Default: 1.0
+    Description: 'Risk percentage per trade (e.g. 1.0 for 1%)'
+  MaxPositions:
+    Type: Number
+    Default: 5
+    Description: 'Maximum concurrent active swing positions'
+  TelegramBotToken:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: 'Optional Telegram Bot Token for Buy/Sell alerts'
+  TelegramChatId:
+    Type: String
+    Default: ''
+    Description: 'Optional Telegram Chat ID for Buy/Sell alerts'
+
+Resources:
+  # 1. S3 Bucket for Paper Trading State JSON
+  TradingStateBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+
+  # 2. Execution Role for Lambda Function
+  TradingLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: TradingS3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - Fn::GetAtt: [TradingStateBucket, Arn]
+                  - Fn::Sub: '${TradingStateBucket.Arn}/*'
+                  - Fn::Sub: 'arn:aws:s3:::${S3CodeBucket}'
+                  - Fn::Sub: 'arn:aws:s3:::${S3CodeBucket}/*'
+
+  # 3. Standard Zip-Based Lambda Function (No Docker)
+  DailySwingTradingFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: '${AWS::StackName}-trading-routine'
+      Runtime: python3.11
+      Handler: scripts.aws_lambda_handler.lambda_handler
+      PackageType: Zip
+      Code:
+        S3Bucket:
+          Ref: S3CodeBucket
+        S3Key:
+          Ref: S3CodeKey
+      Role:
+        Fn::GetAtt: [TradingLambdaRole, Arn]
+      Timeout: 900
+      MemorySize: 1024
+      Environment:
+        Variables:
+          S3_BUCKET_NAME:
+            Ref: TradingStateBucket
+          S3_KEY: state/paper_trading_state.json
+          INITIAL_CAPITAL:
+            Fn::Sub: '${InitialCapital}'
+          RISK_PCT:
+            Fn::Sub: '${RiskPct}'
+          MAX_POSITIONS:
+            Fn::Sub: '${MaxPositions}'
+          AUTO_BUY: 'true'
+          CHECK_MARKET_HOURS: 'true'
+          TELEGRAM_BOT_TOKEN:
+            Ref: TelegramBotToken
+          TELEGRAM_CHAT_ID:
+            Ref: TelegramChatId
+
+  # 4. Amazon EventBridge Rule: Every 15 min Mon-Fri during trading hours (09:15-15:30 IST)
+  MarketScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: 'Triggers Indian stock market scan and paper trade routine every 15 minutes during trading hours (09:15-15:30 IST Mon-Fri)'
+      ScheduleExpression: 'cron(0/15 3-10 ? * MON-FRI *)'
+      State: ENABLED
+      Targets:
+        - Arn:
+            Fn::GetAtt: [DailySwingTradingFunction, Arn]
+          Id: 'DailySwingTradeTarget'
+
+  # 5. Permission for EventBridge to invoke Lambda (Weekday 15m routine)
+  PermissionForEventsToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: DailySwingTradingFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt: [MarketScheduleRule, Arn]
+
+  # 6. Amazon EventBridge Rule: Every Saturday at 4:00 PM IST (10:30 UTC)
+  WeeklySectorScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: 'Triggers Weekly Sector Rotation, Stock Contenders & Backtest Report every Saturday at 4:00 PM IST (10:30 UTC)'
+      ScheduleExpression: 'cron(30 10 ? * SAT *)'
+      State: ENABLED
+      Targets:
+        - Arn:
+            Fn::GetAtt: [DailySwingTradingFunction, Arn]
+          Id: 'WeeklySectorTarget'
+          Input: '{"action": "weekly_sector_report"}'
+
+  # 7. Permission for Saturday WeeklySectorScheduleRule to invoke Lambda
+  PermissionForWeeklySectorRule:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: DailySwingTradingFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt: [WeeklySectorScheduleRule, Arn]
+
+  # 8. Amazon EventBridge Rule: Every Mon-Fri at 3:45 PM IST (10:15 UTC)
+  DailyEODScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: 'Triggers End-of-Day (EOD) Portfolio Status Report to Telegram every Mon-Fri at 3:45 PM IST (10:15 UTC)'
+      ScheduleExpression: 'cron(15 10 ? * MON-FRI *)'
+      State: ENABLED
+      Targets:
+        - Arn:
+            Fn::GetAtt: [DailySwingTradingFunction, Arn]
+          Id: 'DailyEODTarget'
+          Input: '{"action": "eod_digest"}'
+
+  # 9. Permission for DailyEODScheduleRule to invoke Lambda
+  PermissionForDailyEODRule:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: DailySwingTradingFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt: [DailyEODScheduleRule, Arn]
+
+Outputs:
+  TradingStateBucketName:
+    Description: 'S3 Bucket storing paper trading state JSON'
+    Value:
+      Ref: TradingStateBucket
+  LambdaFunctionArn:
+    Description: 'ARN of the Daily Swing Trading Lambda'
+    Value:
+      Fn::GetAtt: [DailySwingTradingFunction, Arn]
