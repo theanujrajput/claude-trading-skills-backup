@@ -69,7 +69,19 @@ def evaluate_trade_postmortem(trade: dict[str, Any]) -> dict[str, Any]:
         hold_days = 0
 
     # Root-cause classification & Lesson formulation
-    if exit_reason == "BREAKEVEN_STOP_TRIGGERED" or "BREAKEVEN" in exit_reason:
+    if "PARTIAL_TARGET" in exit_reason:
+        category = "PARTIAL_TARGET_LOCKED"
+        lesson = (
+            f"First target reached ({r_multiple:+.2f}R). 50% profit banked systematically; "
+            f"runner position left open with progressive trailing stop."
+        )
+    elif "TRAILING_STOP" in exit_reason:
+        category = "RUNNER_PROFIT_CAPTURED"
+        lesson = (
+            f"Runner captured extended move ({r_multiple:+.2f}R in {hold_days} days). "
+            f"Progressive trailing stop locked in profit after breakout expansion."
+        )
+    elif exit_reason == "BREAKEVEN_STOP_TRIGGERED" or "BREAKEVEN" in exit_reason:
         category = "PROTECTED_CAPITAL"
         lesson = (
             "Trailing break-even stop successfully protected capital after reaching +4% gain; "

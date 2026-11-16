@@ -139,7 +139,7 @@ Resources:
     Properties:
       Description: 'Triggers Weekly Sector Rotation, Stock Contenders & Backtest Report every Saturday at 4:00 PM IST (10:30 UTC)'
       ScheduleExpression: 'cron(30 10 ? * SAT *)'
-      State: ENABLED
+      State: DISABLED
       Targets:
         - Arn:
             Fn::GetAtt: [DailySwingTradingFunction, Arn]

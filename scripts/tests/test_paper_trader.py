@@ -124,6 +124,62 @@ class TestPaperTrader(unittest.TestCase):
             trade = state["closed_trades"][0]
             self.assertEqual(trade["exit_reason"], "BREAKEVEN_STOP_TRIGGERED")
 
+    def test_hybrid_partial_exit_and_runner_trailing_stop(self):
+        from unittest.mock import MagicMock, patch
+
+        import pandas as pd
+
+        from scripts.paper_trader import update_market_prices
+
+        init_account(100000.0, self.state_file)
+        # 10 shares @ 1000, initial stop at 960 (-4%), target at 1080 (+8%)
+        enter_position("RUNNER_TEST", 10, 1000.0, 960.0, 1080.0, state_file=self.state_file)
+
+        mock_df = MagicMock()
+
+        # Phase 1: Stock hits 1085 (+8.5% gain, above target)
+        # Should book 50% (5 shares) and convert remaining 5 shares into a Runner
+        mock_series1 = pd.Series([1085.0], name="RUNNER_TEST.NS")
+        mock_df.__getitem__.return_value = {"RUNNER_TEST.NS": mock_series1}
+
+        with patch("yfinance.download", return_value=mock_df):
+            events, state = update_market_prices(state_file=self.state_file)
+            pos = state["active_positions"]["RUNNER_TEST"]
+            self.assertEqual(pos["quantity"], 5)
+            self.assertTrue(pos["is_runner"])
+            self.assertTrue(pos["partial_target_hit"])
+            # Stop loss should now be at 1085 * 0.96 = 1041.60 (guaranteed profit!)
+            self.assertAlmostEqual(pos["stop_loss"], 1041.60, places=1)
+            self.assertEqual(len(state["closed_trades"]), 1)
+            self.assertEqual(state["closed_trades"][0]["exit_reason"], "PARTIAL_TARGET_50PCT")
+            self.assertEqual(state["closed_trades"][0]["quantity"], 5)
+
+        # Phase 2: Stock surges to 1200 (+20%)
+        # Trailing stop should ratchet up to 1200 * 0.96 = 1152.00
+        mock_series2 = pd.Series([1200.0], name="RUNNER_TEST.NS")
+        mock_df.__getitem__.return_value = {"RUNNER_TEST.NS": mock_series2}
+
+        with patch("yfinance.download", return_value=mock_df):
+            events, state = update_market_prices(state_file=self.state_file)
+            pos = state["active_positions"]["RUNNER_TEST"]
+            self.assertAlmostEqual(pos["stop_loss"], 1152.00, places=1)
+            self.assertEqual(pos["highest_price"], 1200.0)
+
+        # Phase 3: Stock pulls back to 1150 (below trailing stop of 1152)
+        # Runner exits with TRAILING_STOP_TRIGGERED
+        mock_series3 = pd.Series([1150.0], name="RUNNER_TEST.NS")
+        mock_df.__getitem__.return_value = {"RUNNER_TEST.NS": mock_series3}
+
+        with patch("yfinance.download", return_value=mock_df):
+            events, state = update_market_prices(state_file=self.state_file)
+            self.assertNotIn("RUNNER_TEST", state["active_positions"])
+            self.assertEqual(len(state["closed_trades"]), 2)
+            runner_exit = state["closed_trades"][1]
+            self.assertEqual(runner_exit["exit_reason"], "TRAILING_STOP_TRIGGERED")
+            self.assertEqual(runner_exit["quantity"], 5)
+            self.assertAlmostEqual(runner_exit["exit_price"], 1150.0)
+            self.assertGreater(runner_exit["pnl"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

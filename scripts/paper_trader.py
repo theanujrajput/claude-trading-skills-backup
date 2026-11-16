@@ -122,10 +122,13 @@ def enter_position(
         "initial_stop_loss": float(stop_loss),
         "target": float(target) if target else None,
         "current_price": float(entry_price),
+        "highest_price": float(entry_price),
         "market_value": round(cost, 2),
         "unrealized_pnl": 0.0,
         "pnl_pct": 0.0,
         "trailing_breakeven_triggered": False,
+        "partial_target_hit": False,
+        "is_runner": False,
         "notes": notes,
     }
 
@@ -163,22 +166,29 @@ def enter_position(
 def close_position(
     symbol: str,
     exit_price: float,
+    qty_to_close: int | None = None,
     reason: str = "MANUAL_EXIT",
     state_file: Path = DEFAULT_STATE_FILE,
+    state: dict[str, Any] | None = None,
 ) -> tuple[bool, str, dict[str, Any]]:
-    """Close an active position and record realized P&L."""
-    state = load_state(state_file)
+    """Close an active position (full or partial) and record realized P&L."""
+    if state is None:
+        state = load_state(state_file)
     symbol = symbol.upper().replace(".NS", "")
 
     if symbol not in state["active_positions"]:
         return False, f"No active position found for {symbol}.", state
 
-    pos = state["active_positions"].pop(symbol)
-    qty = pos["quantity"]
+    pos = state["active_positions"][symbol]
+    total_qty = pos["quantity"]
+    qty = qty_to_close if qty_to_close is not None and 0 < qty_to_close < total_qty else total_qty
+    is_partial = qty < total_qty
+
     entry_price = pos["entry_price"]
     gross_proceeds = qty * exit_price
-    pnl = gross_proceeds - (qty * entry_price)
-    pnl_pct = (pnl / (qty * entry_price)) * 100.0 if (qty * entry_price) > 0 else 0.0
+    cost = qty * entry_price
+    pnl = gross_proceeds - cost
+    pnl_pct = (pnl / cost) * 100.0 if cost > 0 else 0.0
 
     state["cash"] += gross_proceeds
 
@@ -189,13 +199,14 @@ def close_position(
         "entry_price": entry_price,
         "exit_price": float(exit_price),
         "quantity": qty,
-        "cost": round(qty * entry_price, 2),
+        "cost": round(cost, 2),
         "proceeds": round(gross_proceeds, 2),
         "pnl": round(pnl, 2),
         "pnl_pct": round(pnl_pct, 2),
         "exit_reason": reason,
-        "initial_stop": pos.get("stop_loss"),
+        "initial_stop": pos.get("initial_stop_loss", pos.get("stop_loss")),
         "initial_target": pos.get("target"),
+        "is_partial": is_partial,
     }
 
     # Trade Memory Loop: evaluate immediate postmortem
@@ -209,14 +220,26 @@ def close_position(
 
     state["closed_trades"].append(closed_trade)
 
+    if is_partial:
+        pos["quantity"] -= qty
+        pos["market_value"] = round(pos["quantity"] * float(exit_price), 2)
+        pos["partial_target_hit"] = True
+        pos["is_runner"] = True
+        msg = (
+            f"Partial Profit Booked: {qty}/{total_qty} shares of {symbol} @ ₹{exit_price:,.2f} | "
+            f"P&L: ₹{pnl:,.2f} ({pnl_pct:+.2f}%) [{reason}] | Runner: {pos['quantity']} shares"
+        )
+    else:
+        state["active_positions"].pop(symbol)
+        msg = (
+            f"Closed {symbol} @ ₹{exit_price:,.2f} | P&L: ₹{pnl:,.2f} ({pnl_pct:+.2f}%) "
+            f"[{reason}] | New Cash: ₹{state['cash']:,.2f}"
+        )
+
     total_pos_value = sum(p["market_value"] for p in state["active_positions"].values())
     state["portfolio_equity"] = round(state["cash"] + total_pos_value, 2)
 
     save_state(state, state_file)
-    msg = (
-        f"Closed {symbol} @ ₹{exit_price:,.2f} | P&L: ₹{pnl:,.2f} ({pnl_pct:+.2f}%) "
-        f"[{reason}] | New Cash: ₹{state['cash']:,.2f}"
-    )
 
     # Send Telegram notification if configured (Sell/Exit action only)
     try:
@@ -261,9 +284,11 @@ def update_market_prices(
     try:
         df = yf.download(yf_tickers, period="5d", progress=False)
 
-        for sym in list(positions.keys()):
+        for sym in list(state["active_positions"].keys()):
             yf_sym = f"{sym}.NS"
-            pos = positions[sym]
+            pos = state["active_positions"].get(sym)
+            if not pos:
+                continue
             try:
                 if yf_sym in df["Close"]:
                     series = df["Close"][yf_sym].dropna()
@@ -284,13 +309,16 @@ def update_market_prices(
                     latest_close = float(val)
 
                 pos["current_price"] = round(latest_close, 2)
+                pos["highest_price"] = max(
+                    pos.get("highest_price", pos["entry_price"]), latest_close
+                )
                 pos["market_value"] = round(pos["quantity"] * latest_close, 2)
                 cost = pos["quantity"] * pos["entry_price"]
                 pnl = pos["market_value"] - cost
                 pos["unrealized_pnl"] = round(pnl, 2)
                 pos["pnl_pct"] = round((pnl / cost) * 100.0 if cost > 0 else 0.0, 2)
 
-                # Trailing Stop: If unrealized gain reaches +4% or higher, move stop loss to break-even
+                # 1. Trailing Stop to Break-Even at +4% gain
                 if pos.get("entry_price") and pos["pnl_pct"] >= 4.0:
                     entry_p = pos["entry_price"]
                     current_sl = pos.get("stop_loss", 0.0)
@@ -302,31 +330,77 @@ def update_market_prices(
                             f"New Stop Loss = ₹{entry_p:,.2f} (Gain reached {pos['pnl_pct']:+.2f}%)"
                         )
 
-                # Check Stop Loss
+                # 2. Hybrid Profit Booking at +8% Target: Book 50%, trail remaining 50%
+                if (
+                    auto_trigger_stops
+                    and pos.get("target")
+                    and latest_close >= pos["target"]
+                    and not pos.get("partial_target_hit", False)
+                ):
+                    if pos["quantity"] > 1:
+                        qty_to_book = max(1, pos["quantity"] // 2)
+                        _, close_msg, state = close_position(
+                            symbol=sym,
+                            exit_price=latest_close,
+                            qty_to_close=qty_to_book,
+                            reason="PARTIAL_TARGET_50PCT",
+                            state_file=state_file,
+                            state=state,
+                        )
+                        events.append(f"🎯 {close_msg}")
+                        # Re-reference active position and configure runner
+                        pos = state["active_positions"][sym]
+                        pos["partial_target_hit"] = True
+                        pos["is_runner"] = True
+                        pos["highest_price"] = max(
+                            pos.get("highest_price", pos["entry_price"]), latest_close
+                        )
+                        # Initial trailing stop: 4% below peak (locks in profit!)
+                        pos["stop_loss"] = round(pos["highest_price"] * 0.96, 2)
+                        save_state(state, state_file)
+                        events.append(
+                            f"🏃 Runner Active for {sym}: Remaining {pos['quantity']} shares with Trailing Stop at ₹{pos['stop_loss']:,.2f}"
+                        )
+                    else:
+                        # Only 1 share, cannot split, close in full
+                        _, close_msg, state = close_position(
+                            symbol=sym,
+                            exit_price=latest_close,
+                            reason="TARGET_REACHED",
+                            state_file=state_file,
+                            state=state,
+                        )
+                        events.append(f"🟢 {close_msg}")
+                        continue
+
+                # 3. Progressive Trailing Stop for Active Runner: ratchet stop upward with new highs
+                if pos.get("is_runner"):
+                    candidate_stop = round(pos["highest_price"] * 0.96, 2)
+                    current_sl = pos.get("stop_loss", 0.0)
+                    if candidate_stop > current_sl:
+                        pos["stop_loss"] = candidate_stop
+                        events.append(
+                            f"📈 Runner Trailing Stop Ratcheted Up for {sym}: "
+                            f"₹{current_sl:,.2f} → ₹{candidate_stop:,.2f} (Peak: ₹{pos['highest_price']:,.2f})"
+                        )
+
+                # 4. Check Stop Loss / Trailing Stop Trigger
                 if auto_trigger_stops and pos.get("stop_loss") and latest_close <= pos["stop_loss"]:
-                    reason = (
-                        "BREAKEVEN_STOP_TRIGGERED"
-                        if pos.get("trailing_breakeven_triggered")
-                        else "STOP_LOSS_TRIGGERED"
-                    )
+                    if pos.get("is_runner"):
+                        reason = "TRAILING_STOP_TRIGGERED"
+                    elif pos.get("trailing_breakeven_triggered"):
+                        reason = "BREAKEVEN_STOP_TRIGGERED"
+                    else:
+                        reason = "STOP_LOSS_TRIGGERED"
+
                     _, close_msg, state = close_position(
                         symbol=sym,
                         exit_price=latest_close,
                         reason=reason,
                         state_file=state_file,
+                        state=state,
                     )
                     events.append(f"🔴 {close_msg}")
-                    continue
-
-                # Check Target
-                if auto_trigger_stops and pos.get("target") and latest_close >= pos["target"]:
-                    _, close_msg, state = close_position(
-                        symbol=sym,
-                        exit_price=latest_close,
-                        reason="TARGET_REACHED",
-                        state_file=state_file,
-                    )
-                    events.append(f"🟢 {close_msg}")
                     continue
 
                 events.append(
@@ -379,8 +453,16 @@ def format_status_markdown(state: dict[str, Any]) -> str:
             val = p.get("market_value", qty * curr_p)
             unreal_pnl = p.get("unrealized_pnl", 0.0)
             pnl_p = p.get("pnl_pct", 0.0)
+
+            badge = ""
+            if p.get("is_runner"):
+                badge = " 🏃 (Runner)"
+                tgt_str = "Trailing"
+            elif p.get("trailing_breakeven_triggered"):
+                badge = " 🛡️ (BE)"
+
             lines.append(
-                f"| **{sym}** | {qty} | ₹{entry_p:,.2f} | ₹{curr_p:,.2f} | "
+                f"| **{sym}**{badge} | {qty} | ₹{entry_p:,.2f} | ₹{curr_p:,.2f} | "
                 f"{stop_str} | {tgt_str} | ₹{val:,.2f} | ₹{unreal_pnl:+,.2f} ({pnl_p:+.2f}%) |"
             )
     else:

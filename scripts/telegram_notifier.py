@@ -207,7 +207,11 @@ class TelegramNotifier:
         if not self.is_configured:
             return False
 
-        if reason == "BREAKEVEN_STOP_TRIGGERED":
+        if "PARTIAL_TARGET" in reason:
+            header = "🎯 <b>PARTIAL TARGET REACHED (+8% 50% BOOKED)</b>"
+        elif "TRAILING_STOP" in reason:
+            header = "📈 <b>RUNNER TRAILING STOP EXIT (EXTENDED PROFIT)</b>"
+        elif reason == "BREAKEVEN_STOP_TRIGGERED":
             header = "🛡️ <b>BREAK-EVEN EXIT (CAPITAL PROTECTED)</b>"
         elif pnl >= 0:
             header = "🟢 <b>PROFIT EXIT / TARGET REACHED</b>"
